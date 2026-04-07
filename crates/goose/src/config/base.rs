@@ -151,12 +151,26 @@ fn system_config_path() -> PathBuf {
     }
 }
 
+fn bundled_defaults_path() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let path = exe.parent()?.join("defaults.yaml");
+    if path.exists() {
+        Some(path)
+    } else {
+        None
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         let config_dir = Paths::config_dir();
         let user_config_path = config_dir.join(CONFIG_YAML_NAME);
 
-        let config_paths = vec![system_config_path(), user_config_path.clone()];
+        let mut config_paths = vec![system_config_path()];
+        if let Some(defaults) = bundled_defaults_path() {
+            config_paths.push(defaults);
+        }
+        config_paths.push(user_config_path.clone());
 
         let secrets = if env::var("GOOSE_DISABLE_KEYRING").is_ok()
             || keyring_disabled_in_config(&user_config_path)
