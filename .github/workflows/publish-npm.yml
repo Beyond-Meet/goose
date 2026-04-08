@@ -304,7 +304,6 @@ jobs:
           pnpm publish -r --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN }}
-          NPM_CONFIG_PROVENANCE: true
 
       - name: Dry run - Show what would be published
         if: inputs.dry-run == true
