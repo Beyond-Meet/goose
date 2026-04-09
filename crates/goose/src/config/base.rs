@@ -168,12 +168,22 @@ impl Default for Config {
 
         let mut config_paths = vec![system_config_path()];
         if let Some(defaults) = bundled_defaults_path() {
-            config_paths.push(defaults);
+            config_paths.insert(0, defaults);
         }
         config_paths.push(user_config_path.clone());
 
-        let secrets = if env::var("GOOSE_DISABLE_KEYRING").is_ok()
-            || keyring_disabled_in_config(&user_config_path)
+        let no_secrets_config = Self {
+            config_paths: config_paths.clone(),
+            secrets: SecretStorage::File {
+                path: Default::default(),
+            },
+            guard: Mutex::new(()),
+            secrets_cache: Arc::new(Mutex::new(None)),
+        };
+
+        let secrets = if no_secrets_config
+            .get_param::<serde_json::Value>("GOOSE_DISABLE_KEYRING")
+            .is_ok()
         {
             SecretStorage::File {
                 path: config_dir.join("secrets.yaml"),
@@ -183,7 +193,7 @@ impl Default for Config {
                 service: KEYRING_SERVICE.to_string(),
             }
         };
-        Config {
+        Self {
             config_paths,
             secrets,
             guard: Mutex::new(()),
@@ -269,22 +279,6 @@ macro_rules! config_value {
 
 fn parse_yaml_content(content: &str) -> Result<Mapping, ConfigError> {
     serde_yaml::from_str(content).map_err(|e| e.into())
-}
-
-/// Read the GOOSE_DISABLE_KEYRING flag from the config file.
-///
-/// Called before Config is fully initialised, so we do a minimal raw read
-/// rather than going through `get_param`.  All errors are treated as `false`
-/// (keyring stays enabled) so a missing/malformed file is never fatal here.
-fn keyring_disabled_in_config(config_path: &Path) -> bool {
-    std::fs::read_to_string(config_path)
-        .ok()
-        .and_then(|s| parse_yaml_content(&s).ok())
-        .and_then(|m| {
-            m.get("GOOSE_DISABLE_KEYRING")
-                .map(|v| v.as_bool().unwrap_or(false) || v.as_str().is_some_and(|s| s == "true"))
-        })
-        .unwrap_or(false)
 }
 
 const EXTENSIONS_KEY: &str = "extensions";
