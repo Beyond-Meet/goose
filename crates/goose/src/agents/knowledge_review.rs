@@ -1,14 +1,15 @@
 //! Background knowledge review and pre-compression memory flush.
 //!
-//! Two mechanisms for autonomous memory extraction:
+//! Three mechanisms for autonomous knowledge extraction:
 //!
-//! 1. **Background review**: After a reply is delivered, if enough user turns
-//!    have elapsed, spawn a background task that reviews the conversation
-//!    and calls memory tools to extract durable facts.
+//! 1. **Background memory review**: After a reply, if enough user turns have
+//!    elapsed, review the conversation for memory-worthy facts.
 //!
-//! 2. **Pre-compression flush**: Before context compaction, give the model
-//!    one cheap API call with only memory tools to save anything worth
-//!    keeping before it gets summarized away.
+//! 2. **Background skill review**: After a reply, if enough tool iterations
+//!    occurred (complex work), review whether a skill should be created/updated.
+//!
+//! 3. **Pre-compression flush**: Before context compaction, give the model
+//!    one cheap API call with only memory tools to save anything worth keeping.
 
 use std::sync::Arc;
 
@@ -24,10 +25,12 @@ use tracing::{debug, info, warn};
 /// Default interval: review memory every N user turns.
 pub const DEFAULT_MEMORY_REVIEW_INTERVAL: u32 = 5;
 
+/// Default interval: review skills every N tool iterations in a single reply.
+pub const DEFAULT_SKILL_REVIEW_ITERATIONS: u32 = 10;
+
 /// Maximum tool calls the review agent can make per review.
 const MAX_REVIEW_TOOL_CALLS: usize = 8;
 
-/// The prompt injected for background memory review.
 const MEMORY_REVIEW_PROMPT: &str = r#"Review the conversation above and extract any durable facts worth saving to persistent memory. Focus on:
 
 1. User identity/preferences: name, role, timezone, coding style, communication preferences, pet peeves
@@ -49,10 +52,26 @@ Rules:
 
 Make your memory tool calls now."#;
 
-/// The prompt injected for pre-compression flush.
+const SKILL_REVIEW_PROMPT: &str = r#"Review the conversation above and consider saving or updating a skill if appropriate.
+
+Focus on: was a non-trivial approach used to complete a task that required trial and error, or changing course due to experiential findings along the way, or did the user expect or desire a different method or outcome?
+
+If a relevant skill already exists, update it with what you learned.
+Otherwise, create a new skill if the approach is reusable.
+If nothing is worth saving, just say "Nothing to save." and stop."#;
+
+const COMBINED_REVIEW_PROMPT: &str = r#"Review the conversation above and consider two things:
+
+**Memory**: Has the user revealed things about themselves — their persona, desires, preferences, or personal details? Has the user expressed expectations about how you should behave, their work style, or ways they want you to operate? If so, save using the memory tool.
+
+**Skills**: Was a non-trivial approach used to complete a task that required trial and error, or changing course due to experiential findings along the way, or did the user expect or desire a different method or outcome? If a relevant skill already exists, update it. Otherwise, create a new one if the approach is reusable.
+
+Only act if there's something genuinely worth saving.
+If nothing stands out, just say "Nothing to save." and stop."#;
+
 const FLUSH_PROMPT: &str = "[System: The session context is being compressed. Save anything worth remembering permanently — prioritize user preferences, corrections, environment facts, and recurring patterns over task-specific details. This is your last chance before earlier conversation turns are summarized away.]";
 
-/// Spawn a background task to review the conversation for memory-worthy facts.
+/// Spawn a background task to review the conversation for memory and/or skill saves.
 ///
 /// Runs AFTER the reply is delivered. The user never sees this.
 pub fn spawn_background_review(
@@ -61,20 +80,42 @@ pub fn spawn_background_review(
     conversation: Conversation,
     session_id: String,
     working_dir: std::path::PathBuf,
+    review_memory: bool,
+    review_skills: bool,
 ) {
+    let prompt = if review_memory && review_skills {
+        COMBINED_REVIEW_PROMPT
+    } else if review_skills {
+        SKILL_REVIEW_PROMPT
+    } else {
+        MEMORY_REVIEW_PROMPT
+    };
+
+    let task_name = if review_memory && review_skills {
+        "combined_review"
+    } else if review_skills {
+        "skill_review"
+    } else {
+        "memory_review"
+    };
+
     tokio::spawn(async move {
-        if let Err(e) = run_memory_extraction(
+        if let Err(e) = run_knowledge_extraction(
             provider.as_ref(),
             &extension_manager,
             &conversation,
             &session_id,
             &working_dir,
-            MEMORY_REVIEW_PROMPT,
-            "review",
+            prompt,
+            task_name,
+            ReviewScope {
+                include_memory_tools: review_memory,
+                include_skill_tools: review_skills,
+            },
         )
         .await
         {
-            warn!("Background memory review failed: {}", e);
+            warn!("Background {} failed: {}", task_name, e);
         }
     });
 }
@@ -103,7 +144,7 @@ pub async fn flush_memories_before_compaction(
         return Ok(());
     }
 
-    run_memory_extraction(
+    run_knowledge_extraction(
         provider,
         extension_manager,
         conversation,
@@ -111,17 +152,23 @@ pub async fn flush_memories_before_compaction(
         working_dir,
         FLUSH_PROMPT,
         "flush",
+        ReviewScope {
+            include_memory_tools: true,
+            include_skill_tools: false,
+        },
     )
     .await
 }
 
-/// Core extraction logic shared by background review and flush.
-///
-/// 1. Build messages from conversation + extraction prompt
-/// 2. Find memory tools from extension manager
-/// 3. Call complete_fast() with only memory tools
-/// 4. Execute any memory tool calls from the response
-async fn run_memory_extraction(
+/// What to review in a knowledge extraction call.
+struct ReviewScope {
+    include_memory_tools: bool,
+    include_skill_tools: bool,
+}
+
+/// Core extraction logic shared by all review types.
+#[allow(clippy::too_many_arguments)]
+async fn run_knowledge_extraction(
     provider: &dyn Provider,
     extension_manager: &ExtensionManager,
     conversation: &Conversation,
@@ -129,27 +176,33 @@ async fn run_memory_extraction(
     working_dir: &std::path::Path,
     extraction_prompt: &str,
     task_name: &str,
+    scope: ReviewScope,
 ) -> anyhow::Result<()> {
-    // Find memory tools
     let all_tools = extension_manager
         .get_prefixed_tools(session_id, None)
         .await
         .unwrap_or_default();
 
-    let memory_tools: Vec<Tool> = all_tools
+    let review_tools: Vec<Tool> = all_tools
         .into_iter()
         .filter(|t| {
             let name: &str = &t.name;
-            name == "memory" || name.ends_with("__memory")
+            let is_memory = name == "memory" || name.ends_with("__memory");
+            let is_skill = name == "create_skill"
+                || name == "patch_skill"
+                || name == "load_skill"
+                || name.ends_with("__create_skill")
+                || name.ends_with("__patch_skill")
+                || name.ends_with("__load_skill");
+            (scope.include_memory_tools && is_memory) || (scope.include_skill_tools && is_skill)
         })
         .collect();
 
-    if memory_tools.is_empty() {
-        debug!("No memory tools found, skipping {} extraction", task_name);
+    if review_tools.is_empty() {
+        debug!("No relevant tools found, skipping {} extraction", task_name);
         return Ok(());
     }
 
-    // Build messages: conversation snapshot + extraction prompt
     let mut messages: Vec<Message> = conversation
         .messages()
         .iter()
@@ -160,11 +213,10 @@ async fn run_memory_extraction(
     messages.push(Message::user().with_text(extraction_prompt));
 
     let system_prompt =
-        "You are reviewing a conversation to extract durable facts for persistent memory. \
-         You have access to the memory tool. Use it to save important facts. \
-         Be selective — only save things that will matter in future sessions.";
+        "You are reviewing a conversation to extract durable knowledge. \
+         You have access to memory and/or skill tools. Use them to save important facts \
+         or reusable approaches. Be selective — only save things that will matter in future sessions.";
 
-    // Mini agent loop: call model, execute tool calls, repeat
     let mut tool_calls_made = 0;
 
     loop {
@@ -173,18 +225,17 @@ async fn run_memory_extraction(
         }
 
         let result = provider
-            .complete_fast(session_id, system_prompt, &messages, &memory_tools)
+            .complete_fast(session_id, system_prompt, &messages, &review_tools)
             .await;
 
         let (response_message, _usage) = match result {
             Ok(r) => r,
             Err(e) => {
-                debug!("Memory {} model call failed: {}", task_name, e);
+                debug!("{} model call failed: {}", task_name, e);
                 break;
             }
         };
 
-        // Extract tool requests from response
         let tool_requests: Vec<_> = response_message
             .content
             .iter()
@@ -203,7 +254,6 @@ async fn run_memory_extraction(
 
         messages.push(response_message);
 
-        // Execute each tool call
         for tool_request in &tool_requests {
             tool_calls_made += 1;
 
@@ -225,7 +275,7 @@ async fn run_memory_extraction(
                 Ok(tool_result) => {
                     let call_result = tool_result.result.await;
                     debug!(
-                        "Memory {} tool call completed: {:?}",
+                        "{} tool call completed: {:?}",
                         task_name,
                         call_result.is_ok()
                     );
@@ -234,14 +284,14 @@ async fn run_memory_extraction(
                     messages.push(response);
                 }
                 Err(e) => {
-                    debug!("Memory {} tool dispatch failed: {}", task_name, e);
+                    debug!("{} tool dispatch failed: {}", task_name, e);
                 }
             }
         }
     }
 
     info!(
-        "Memory {} complete: {} tool calls made",
+        "{} complete: {} tool calls made",
         task_name, tool_calls_made
     );
     Ok(())

@@ -1806,8 +1806,21 @@ impl Agent {
                 tracing::info!(target: "goose::agents::agent", trace_output = last_assistant_text.as_str());
             }
 
-            // Spawn background memory review if enough turns have passed
-            if turns_taken >= super::knowledge_review::DEFAULT_MEMORY_REVIEW_INTERVAL {
+            // Spawn background knowledge review if triggers are met
+            // Memory review: fires after N user turns
+            // Skill review: fires after N tool iterations (complex work)
+            let should_review_memory =
+                turns_taken >= super::knowledge_review::DEFAULT_MEMORY_REVIEW_INTERVAL;
+
+            let final_tool_count = conversation.messages().iter()
+                .flat_map(|m| m.content.iter())
+                .filter(|c| matches!(c, MessageContent::ToolRequest(_)))
+                .count()
+                .saturating_sub(pre_turn_tool_count);
+            let should_review_skills =
+                final_tool_count as u32 >= super::knowledge_review::DEFAULT_SKILL_REVIEW_ITERATIONS;
+
+            if should_review_memory || should_review_skills {
                 if let Ok(provider) = self.provider().await {
                     super::knowledge_review::spawn_background_review(
                         provider,
@@ -1815,6 +1828,8 @@ impl Agent {
                         conversation.clone(),
                         session_config.id.clone(),
                         working_dir.clone(),
+                        should_review_memory,
+                        should_review_skills,
                     );
                 }
             }
