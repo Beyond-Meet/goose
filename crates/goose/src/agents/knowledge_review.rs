@@ -181,8 +181,9 @@ async fn build_session_context(
     }
 
     // Cap at 2000 chars to avoid bloating the review prompt
-    if context.len() > 2000 {
-        context.truncate(2000);
+    let truncated: String = context.chars().take(2000).collect();
+    if truncated.len() < context.len() {
+        context = truncated;
         context.push_str("\n[...truncated]");
     }
 
