@@ -1,0 +1,508 @@
+//! Adaptive memory platform extension — Hermes-compatible persistent memory.
+//!
+//! Two files, § delimited, with hard character budgets:
+//!   - USER.md: who the user is (name, role, preferences, communication style)
+//!   - MEMORY.md: agent's notes (environment facts, project conventions, tool quirks)
+//!
+//! Runs in-process as a platform extension (like skills), NOT as an MCP server.
+
+use crate::agents::extension::PlatformExtensionContext;
+use crate::agents::mcp_client::{Error, McpClientTrait};
+use crate::agents::tool_execution::ToolCallContext;
+use crate::config::paths::Paths;
+use async_trait::async_trait;
+use regex::Regex;
+use rmcp::model::{
+    CallToolResult, Content, Implementation, InitializeResult, JsonObject, ListToolsResult,
+    ServerCapabilities, ServerNotification, Tool,
+};
+use std::fs;
+use std::io::Write;
+use std::path::PathBuf;
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
+use tracing::warn;
+
+pub static EXTENSION_NAME: &str = "adaptive_memory";
+
+/// Entry delimiter — matches Hermes's § convention.
+const ENTRY_DELIMITER: &str = "\n§\n";
+
+/// Character budget for USER.md.
+const USER_BUDGET: usize = 1375;
+
+/// Character budget for MEMORY.md.
+const MEMORY_BUDGET: usize = 2200;
+
+// ---------------------------------------------------------------------------
+// Security scanning
+// ---------------------------------------------------------------------------
+
+lazy_static::lazy_static! {
+    static ref THREAT_PATTERNS: Vec<(Regex, &'static str)> = vec![
+        (Regex::new(r"(?i)ignore\s+(previous|all|above|prior)\s+instructions").unwrap(), "prompt_injection"),
+        (Regex::new(r"(?i)you\s+are\s+now\s+").unwrap(), "role_hijack"),
+        (Regex::new(r"(?i)do\s+not\s+tell\s+the\s+user").unwrap(), "deception_hide"),
+        (Regex::new(r"(?i)system\s+prompt\s+override").unwrap(), "sys_prompt_override"),
+        (Regex::new(r"(?i)disregard\s+(your|all|any)\s+(instructions|rules|guidelines)").unwrap(), "disregard_rules"),
+        (Regex::new(r"(?i)curl\s+[^\n]*\$\{?\w*(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|API)").unwrap(), "exfil_curl"),
+        (Regex::new(r"(?i)wget\s+[^\n]*\$\{?\w*(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|API)").unwrap(), "exfil_wget"),
+        (Regex::new(r"(?i)cat\s+[^\n]*(\.env|credentials|\.netrc|\.pgpass|\.npmrc|\.pypirc)").unwrap(), "read_secrets"),
+    ];
+}
+
+const INVISIBLE_CHARS: &[char] = &[
+    '\u{200b}', '\u{200c}', '\u{200d}', '\u{2060}', '\u{feff}', '\u{202a}', '\u{202b}', '\u{202c}',
+    '\u{202d}', '\u{202e}',
+];
+
+fn scan_content(content: &str) -> Option<String> {
+    for &ch in INVISIBLE_CHARS {
+        if content.contains(ch) {
+            return Some(format!(
+                "Blocked: content contains invisible unicode U+{:04X}.",
+                ch as u32
+            ));
+        }
+    }
+    for (pattern, pid) in THREAT_PATTERNS.iter() {
+        if pattern.is_match(content) {
+            return Some(format!("Blocked: matches threat pattern '{}'.", pid));
+        }
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------
+// File helpers
+// ---------------------------------------------------------------------------
+
+fn memory_dir() -> PathBuf {
+    Paths::config_dir().join("memory")
+}
+
+fn read_entries(filename: &str) -> Vec<String> {
+    let path = memory_dir().join(filename);
+    let Ok(raw) = fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    if raw.trim().is_empty() {
+        return Vec::new();
+    }
+    raw.split(ENTRY_DELIMITER)
+        .map(|e| e.trim().to_string())
+        .filter(|e| !e.is_empty())
+        .collect()
+}
+
+fn write_entries(filename: &str, entries: &[String]) -> std::io::Result<()> {
+    let dir = memory_dir();
+    fs::create_dir_all(&dir)?;
+    let path = dir.join(filename);
+    let content = if entries.is_empty() {
+        String::new()
+    } else {
+        entries.join(ENTRY_DELIMITER)
+    };
+    // Atomic write via tempfile
+    let mut tmp = tempfile::NamedTempFile::new_in(&dir)?;
+    tmp.write_all(content.as_bytes())?;
+    tmp.flush()?;
+    tmp.persist(&path).map_err(|e| e.error)?;
+    Ok(())
+}
+
+fn char_count(entries: &[String]) -> usize {
+    if entries.is_empty() {
+        return 0;
+    }
+    entries.join(ENTRY_DELIMITER).len()
+}
+
+fn filename_for(target: &str) -> &'static str {
+    if target == "user" {
+        "USER.md"
+    } else {
+        "MEMORY.md"
+    }
+}
+
+fn budget_for(target: &str) -> usize {
+    if target == "user" {
+        USER_BUDGET
+    } else {
+        MEMORY_BUDGET
+    }
+}
+
+fn success_text(target: &str, entries: &[String], budget: usize, message: &str) -> String {
+    let current = char_count(entries);
+    let pct = if budget > 0 {
+        std::cmp::min(100, current * 100 / budget)
+    } else {
+        0
+    };
+    format!(
+        "{}\nTarget: {} | Entries: {} | Usage: {}% — {}/{} chars",
+        message,
+        target,
+        entries.len(),
+        pct,
+        current,
+        budget
+    )
+}
+
+fn render_block(target: &str, entries: &[String], budget: usize) -> String {
+    if entries.is_empty() {
+        return String::new();
+    }
+    let content = entries.join(ENTRY_DELIMITER);
+    let pct = std::cmp::min(100, content.len() * 100 / budget);
+    let header = if target == "user" {
+        format!(
+            "USER PROFILE (who the user is) [{}% — {}/{} chars]",
+            pct,
+            content.len(),
+            budget
+        )
+    } else {
+        format!(
+            "MEMORY (your personal notes) [{}% — {}/{} chars]",
+            pct,
+            content.len(),
+            budget
+        )
+    };
+    let sep = "═".repeat(46);
+    format!("{}\n{}\n{}\n{}", sep, header, sep, content)
+}
+
+// ---------------------------------------------------------------------------
+// Platform extension
+// ---------------------------------------------------------------------------
+
+pub struct AdaptiveMemoryClient {
+    info: InitializeResult,
+}
+
+impl AdaptiveMemoryClient {
+    pub fn new(_context: PlatformExtensionContext) -> anyhow::Result<Self> {
+        let user_entries = read_entries("USER.md");
+        let memory_entries = read_entries("MEMORY.md");
+
+        let mut instructions = String::from(
+            "You have persistent adaptive memory across sessions.\n\
+             Save proactively — don't wait to be asked.\n\n\
+             TWO TARGETS:\n\
+             - 'user': who the user is — name, role, preferences, communication style\n\
+             - 'memory': your notes — environment facts, project conventions, tool quirks\n\n\
+             ACTIONS: add, replace (old_text identifies entry), remove (old_text identifies entry)\n\n\
+             Memory has hard size limits. Adds that exceed the limit are REJECTED.\n\
+             Replace or remove existing entries to make room first.\n",
+        );
+
+        let user_block = render_block("user", &user_entries, USER_BUDGET);
+        if !user_block.is_empty() {
+            instructions.push('\n');
+            instructions.push_str(&user_block);
+        }
+
+        let memory_block = render_block("memory", &memory_entries, MEMORY_BUDGET);
+        if !memory_block.is_empty() {
+            instructions.push('\n');
+            instructions.push_str(&memory_block);
+        }
+
+        let info = InitializeResult::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(
+                Implementation::new(EXTENSION_NAME, "1.0.0").with_title("Adaptive Memory"),
+            )
+            .with_instructions(instructions);
+
+        Ok(Self { info })
+    }
+}
+
+#[async_trait]
+impl McpClientTrait for AdaptiveMemoryClient {
+    async fn list_tools(
+        &self,
+        _session_id: &str,
+        _next_cursor: Option<String>,
+        _cancellation_token: CancellationToken,
+    ) -> Result<ListToolsResult, Error> {
+        let schema = serde_json::json!({
+            "type": "object",
+            "required": ["action", "target"],
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["add", "replace", "remove"],
+                    "description": "Action: add (new entry), replace (update existing), remove (delete)"
+                },
+                "target": {
+                    "type": "string",
+                    "enum": ["memory", "user"],
+                    "description": "Target store: 'user' (who the user is) or 'memory' (your notes)"
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Content for 'add', or new content for 'replace'"
+                },
+                "old_text": {
+                    "type": "string",
+                    "description": "Substring identifying the entry to replace or remove"
+                }
+            }
+        });
+
+        let tool = Tool::new(
+            "memory",
+            "Save durable information to persistent memory that survives across sessions. \
+             Memory is injected into every turn, so keep it compact.\n\n\
+             WHEN TO SAVE (proactively):\n\
+             - User corrects you or says 'remember this'\n\
+             - User shares preferences, habits, personal details → target: user\n\
+             - You discover environment facts, tool quirks → target: memory\n\n\
+             Do NOT save: task progress, session outcomes, temporary state.\n\
+             SKIP: trivial info, things easily re-discovered."
+                .to_string(),
+            schema.as_object().unwrap().clone(),
+        );
+
+        Ok(ListToolsResult {
+            tools: vec![tool],
+            next_cursor: None,
+            meta: None,
+        })
+    }
+
+    async fn call_tool(
+        &self,
+        _ctx: &ToolCallContext,
+        name: &str,
+        arguments: Option<JsonObject>,
+        _cancellation_token: CancellationToken,
+    ) -> Result<CallToolResult, Error> {
+        if name != "memory" {
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Unknown tool: {}",
+                name
+            ))]));
+        }
+
+        let args = arguments.unwrap_or_default();
+        let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("");
+        let target = args
+            .get("target")
+            .and_then(|v| v.as_str())
+            .unwrap_or("memory");
+        let content_val = args
+            .get("content")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let old_text = args
+            .get("old_text")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+
+        if target != "memory" && target != "user" {
+            return Ok(CallToolResult::error(vec![Content::text(
+                "Invalid target. Use 'memory' or 'user'.",
+            )]));
+        }
+
+        let filename = filename_for(target);
+        let budget = budget_for(target);
+
+        match action {
+            "add" => {
+                if content_val.is_empty() {
+                    return Ok(CallToolResult::error(vec![Content::text(
+                        "Content cannot be empty.",
+                    )]));
+                }
+                if let Some(err) = scan_content(&content_val) {
+                    return Ok(CallToolResult::error(vec![Content::text(err)]));
+                }
+
+                let mut entries = read_entries(filename);
+
+                if entries.iter().any(|e| e == &content_val) {
+                    return Ok(CallToolResult::success(vec![Content::text(success_text(
+                        target,
+                        &entries,
+                        budget,
+                        "Entry already exists (no duplicate added).",
+                    ))]));
+                }
+
+                let mut test = entries.clone();
+                test.push(content_val.clone());
+                if char_count(&test) > budget {
+                    let current = char_count(&entries);
+                    let previews: String = entries
+                        .iter()
+                        .enumerate()
+                        .map(|(i, e)| {
+                            let p: String = e.chars().take(77).collect();
+                            if e.len() > 80 {
+                                format!("  {}. {}...", i + 1, p)
+                            } else {
+                                format!("  {}. {}", i + 1, e)
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "Memory at {}/{} chars. Adding ({} chars) would exceed limit. Replace or remove first.\n\n{}",
+                        current, budget, content_val.len(), previews
+                    ))]));
+                }
+
+                entries.push(content_val);
+                write_entries(filename, &entries).map_err(|e| {
+                    warn!("Failed to write memory: {}", e);
+                    Error::TransportClosed
+                })?;
+
+                Ok(CallToolResult::success(vec![Content::text(success_text(
+                    target,
+                    &entries,
+                    budget,
+                    "Entry added.",
+                ))]))
+            }
+
+            "replace" => {
+                if old_text.is_empty() {
+                    return Ok(CallToolResult::error(vec![Content::text(
+                        "old_text required for replace.",
+                    )]));
+                }
+                if content_val.is_empty() {
+                    return Ok(CallToolResult::error(vec![Content::text(
+                        "content required for replace. Use 'remove' to delete.",
+                    )]));
+                }
+                if let Some(err) = scan_content(&content_val) {
+                    return Ok(CallToolResult::error(vec![Content::text(err)]));
+                }
+
+                let mut entries = read_entries(filename);
+                let matches: Vec<usize> = entries
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| e.contains(&old_text))
+                    .map(|(i, _)| i)
+                    .collect();
+
+                if matches.is_empty() {
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "No entry matched '{}'.",
+                        old_text
+                    ))]));
+                }
+                if matches.len() > 1 {
+                    let unique: std::collections::HashSet<&str> =
+                        matches.iter().map(|&i| entries[i].as_str()).collect();
+                    if unique.len() > 1 {
+                        return Ok(CallToolResult::error(vec![Content::text(format!(
+                            "Multiple entries matched '{}'. Be more specific.",
+                            old_text
+                        ))]));
+                    }
+                }
+
+                let idx = matches[0];
+                let mut test = entries.clone();
+                test[idx] = content_val.clone();
+                if char_count(&test) > budget {
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "Replacement would put memory at {}/{} chars. Shorten or remove first.",
+                        char_count(&test),
+                        budget
+                    ))]));
+                }
+
+                entries[idx] = content_val;
+                write_entries(filename, &entries).map_err(|e| {
+                    warn!("Failed to write memory: {}", e);
+                    Error::TransportClosed
+                })?;
+
+                Ok(CallToolResult::success(vec![Content::text(success_text(
+                    target,
+                    &entries,
+                    budget,
+                    "Entry replaced.",
+                ))]))
+            }
+
+            "remove" => {
+                if old_text.is_empty() {
+                    return Ok(CallToolResult::error(vec![Content::text(
+                        "old_text required for remove.",
+                    )]));
+                }
+
+                let mut entries = read_entries(filename);
+                let matches: Vec<usize> = entries
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| e.contains(&old_text))
+                    .map(|(i, _)| i)
+                    .collect();
+
+                if matches.is_empty() {
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "No entry matched '{}'.",
+                        old_text
+                    ))]));
+                }
+                if matches.len() > 1 {
+                    let unique: std::collections::HashSet<&str> =
+                        matches.iter().map(|&i| entries[i].as_str()).collect();
+                    if unique.len() > 1 {
+                        return Ok(CallToolResult::error(vec![Content::text(format!(
+                            "Multiple entries matched '{}'. Be more specific.",
+                            old_text
+                        ))]));
+                    }
+                }
+
+                entries.remove(matches[0]);
+                write_entries(filename, &entries).map_err(|e| {
+                    warn!("Failed to write memory: {}", e);
+                    Error::TransportClosed
+                })?;
+
+                Ok(CallToolResult::success(vec![Content::text(success_text(
+                    target,
+                    &entries,
+                    budget,
+                    "Entry removed.",
+                ))]))
+            }
+
+            _ => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Unknown action '{}'. Use: add, replace, remove",
+                action
+            ))])),
+        }
+    }
+
+    fn get_info(&self) -> Option<&InitializeResult> {
+        Some(&self.info)
+    }
+
+    async fn subscribe(&self) -> mpsc::Receiver<ServerNotification> {
+        let (_tx, rx) = mpsc::channel(1);
+        rx
+    }
+}

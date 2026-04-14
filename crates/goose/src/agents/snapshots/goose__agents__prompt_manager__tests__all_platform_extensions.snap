@@ -35,6 +35,21 @@ to discover what extensions can help.
 Use manage_extensions to enable or disable specific extensions by name.
 Use list_resources and read_resource to work with extension data and resources.
 
+## adaptive_memory
+
+### Instructions
+You have persistent adaptive memory across sessions.
+Save proactively — don't wait to be asked.
+
+TWO TARGETS:
+- 'user': who the user is — name, role, preferences, communication style
+- 'memory': your notes — environment facts, project conventions, tool quirks
+
+ACTIONS: add, replace (old_text identifies entry), remove (old_text identifies entry)
+
+Memory has hard size limits. Adds that exceed the limit are REJECTED.
+Replace or remove existing entries to make room first.
+
 ## analyze
 
 ### Instructions

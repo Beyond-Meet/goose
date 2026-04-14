@@ -850,7 +850,12 @@ mod tests {
         }))
         .unwrap();
         let create_result = client
-            .call_tool(&ctx, "create_skill", Some(create_args), CancellationToken::new())
+            .call_tool(
+                &ctx,
+                "create_skill",
+                Some(create_args),
+                CancellationToken::new(),
+            )
             .await
             .unwrap();
         assert!(!create_result.is_error.unwrap_or(false));
@@ -874,7 +879,12 @@ mod tests {
         }))
         .unwrap();
         let result = client
-            .call_tool(&ctx, "patch_skill", Some(patch_args), CancellationToken::new())
+            .call_tool(
+                &ctx,
+                "patch_skill",
+                Some(patch_args),
+                CancellationToken::new(),
+            )
             .await
             .unwrap();
 

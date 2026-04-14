@@ -1,3 +1,4 @@
+pub mod adaptive_memory;
 pub mod analyze;
 pub mod apps;
 pub mod chatrecall;
@@ -257,6 +258,19 @@ pub static PLATFORM_EXTENSIONS: Lazy<HashMap<&'static str, PlatformExtensionDef>
                 unprefixed_tools: true,
                 hidden: false,
                 client_factory: |ctx| Box::new(skills::SkillsClient::new(ctx).unwrap()),
+            },
+        );
+
+        map.insert(
+            adaptive_memory::EXTENSION_NAME,
+            PlatformExtensionDef {
+                name: adaptive_memory::EXTENSION_NAME,
+                display_name: "Adaptive Memory",
+                description: "Persistent memory that learns user preferences, environment facts, and lessons across sessions",
+                default_enabled: true,
+                unprefixed_tools: true,
+                hidden: false,
+                client_factory: |ctx| Box::new(adaptive_memory::AdaptiveMemoryClient::new(ctx).unwrap()),
             },
         );
 
