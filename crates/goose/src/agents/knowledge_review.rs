@@ -531,19 +531,13 @@ mod tests {
     fn test_trigger_thresholds() {
         // Memory review fires at DEFAULT_MEMORY_REVIEW_INTERVAL turns
         assert_eq!(DEFAULT_MEMORY_REVIEW_INTERVAL, 5);
-        assert!(5 >= DEFAULT_MEMORY_REVIEW_INTERVAL);
-        assert!(!(4 >= DEFAULT_MEMORY_REVIEW_INTERVAL));
 
         // Skill review fires at DEFAULT_SKILL_REVIEW_ITERATIONS tool calls
         assert_eq!(DEFAULT_SKILL_REVIEW_ITERATIONS, 10);
-        assert!(10u32 >= DEFAULT_SKILL_REVIEW_ITERATIONS);
-        assert!(!(9u32 >= DEFAULT_SKILL_REVIEW_ITERATIONS));
     }
 
     #[test]
     fn test_max_review_tool_calls_limit() {
-        // Sanity check — shouldn't be unbounded
-        assert!(MAX_REVIEW_TOOL_CALLS > 0);
-        assert!(MAX_REVIEW_TOOL_CALLS <= 20);
+        assert_eq!(MAX_REVIEW_TOOL_CALLS, 8);
     }
 }
