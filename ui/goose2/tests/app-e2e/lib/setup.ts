@@ -1,11 +1,13 @@
 import { beforeAll, beforeEach, afterAll, onTestFailed } from "vitest";
+import { type AppRuntime, startAppForTestFile } from "./app-runtime";
 import { type TestDriver, createTestDriver } from "./test-driver-client";
 
 declare const __SCREENSHOT_DIR__: string;
 declare const __SCREENSHOT_ON_FAILURE__: boolean;
 
-export const useTestDriver = (): TestDriver => {
+export const useTestDriver = (testFileId: string): TestDriver => {
   let inner: TestDriver;
+  let runtime: AppRuntime;
 
   const testDriver = new Proxy({} as TestDriver, {
     get(_target, prop) {
@@ -16,11 +18,19 @@ export const useTestDriver = (): TestDriver => {
   });
 
   beforeAll(async () => {
-    inner = await createTestDriver();
+    try {
+      runtime = await startAppForTestFile(testFileId);
+      inner = await createTestDriver({ port: runtime.port });
+    } catch (error) {
+      inner?.close();
+      runtime?.close();
+      throw error;
+    }
   });
 
   afterAll(() => {
     inner?.close();
+    runtime?.close();
   });
 
   beforeEach(async () => {

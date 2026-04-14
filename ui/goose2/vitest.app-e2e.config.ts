@@ -10,6 +10,8 @@ export default defineConfig({
   test: {
     include: ["tests/app-e2e/**/*.test.ts"],
     testTimeout: 60000,
-    hookTimeout: 10000,
+    hookTimeout: 120000,
+    pool: "forks",
+    maxWorkers: process.env.APP_E2E_WORKERS,
   },
 });

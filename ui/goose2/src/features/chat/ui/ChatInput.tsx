@@ -441,6 +441,7 @@ export function ChatInput({
               <PopoverAnchor asChild>
                 <textarea
                   ref={textareaRef}
+                  data-testid="chat-input"
                   value={text}
                   onChange={handleInput}
                   onKeyDown={handleKeyDown}

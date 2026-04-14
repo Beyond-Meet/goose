@@ -280,6 +280,7 @@ export function ChatInputToolbar({
               onClick={onSend}
               disabled={!canSend}
               size="icon-sm"
+              data-testid="chat-send"
               className={cn(
                 "rounded-full",
                 "shadow-none",

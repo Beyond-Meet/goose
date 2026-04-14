@@ -104,7 +104,16 @@ pub fn run() {
             commands::system::list_files_for_mentions,
         ])
         .setup(|_app| Ok(()))
-        .build(tauri::generate_context!())
+        .build({
+            #[allow(unused_mut)]
+            let mut context = tauri::generate_context!();
+            #[cfg(feature = "app-test-driver")]
+            if let Ok(profile) = std::env::var("GOOSE2_PROFILE") {
+                context.config_mut().identifier =
+                    format!("com.goose.app.e2e.{profile}");
+            }
+            context
+        })
         .expect("error while building tauri application")
         .run(move |_app, event| {
             if let tauri::RunEvent::Exit = event {

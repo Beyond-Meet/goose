@@ -26,8 +26,7 @@ project_dir="$(pwd)"
 tauri_config=$(
   PROJECT_DIR="$project_dir" \
   VITE_PORT="$vite_port" \
-  GOOSE2_PROFILE="$profile" \
-  python3 -c $'import json, os\nprofile = os.environ["GOOSE2_PROFILE"]\nconfig = {\n    "build": {\n        "devUrl": f"http://localhost:{os.environ[\"VITE_PORT\"]}",\n        "beforeDevCommand": {\n            "script": f"cd {os.environ[\"PROJECT_DIR\"]} && exec pnpm exec vite --port {os.environ[\"VITE_PORT\"]} --strictPort",\n            "cwd": ".",\n            "wait": False,\n        },\n    },\n}\nif profile:\n    config["identifier"] = f"com.goose.app.dev.{profile}"\n    config["productName"] = f"Goose Dev ({profile})"\nprint(json.dumps(config))'
+  python3 -c $'import json, os\nconfig = {\n    "build": {\n        "devUrl": f"http://localhost:{os.environ[\"VITE_PORT\"]}",\n        "beforeDevCommand": {\n            "script": f"cd {os.environ[\"PROJECT_DIR\"]} && exec pnpm exec vite --port {os.environ[\"VITE_PORT\"]} --strictPort",\n            "cwd": ".",\n            "wait": False,\n        },\n    },\n}\nprint(json.dumps(config))'
 )
 
 if git rev-parse --is-inside-work-tree &>/dev/null; then

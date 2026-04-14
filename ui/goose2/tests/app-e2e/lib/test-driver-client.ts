@@ -1,7 +1,5 @@
 import net from "node:net";
 
-const PORT = Number(process.env.APP_TEST_DRIVER_PORT) || 9999;
-
 interface TestDriverCommand {
   action: string;
   selector?: string;
@@ -92,11 +90,11 @@ function send(socket: net.Socket, command: TestDriverCommand): Promise<string> {
  * Create a client connection to the Tauri app test driver.
  * Returns an object with methods for each test driver command.
  */
-export async function createTestDriver({
-  port = PORT,
+export const createTestDriver = async ({
+  port = Number(process.env.APP_TEST_DRIVER_PORT) || 9999,
 }: {
   port?: number;
-} = {}): Promise<TestDriver> {
+} = {}): Promise<TestDriver> => {
   const socket = net.createConnection({ port, host: "127.0.0.1" });
 
   await new Promise<void>((resolve, reject) => {
@@ -169,4 +167,4 @@ export async function createTestDriver({
       socket.end();
     },
   };
-}
+};

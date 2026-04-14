@@ -146,24 +146,88 @@ fn build_js(cmd: &TestCommand) -> String {
         .to_string(),
         "click" => {
             let sel = cmd.selector.as_deref().unwrap_or("body");
-            with_wait_for(sel, r#"el.click(); return "clicked";"#, timeout_ms)
+            with_wait_for(
+                sel,
+                r#"if (el instanceof HTMLButtonElement && el.disabled) {
+                    return "ERROR: element is disabled";
+                }
+                if (el instanceof HTMLInputElement && el.disabled) {
+                    return "ERROR: element is disabled";
+                }
+                if (el instanceof HTMLTextAreaElement && el.disabled) {
+                    return "ERROR: element is disabled";
+                }
+                if (el.getAttribute('aria-disabled') === 'true') {
+                    return "ERROR: element is aria-disabled";
+                }
+                el.click();
+                return "clicked";"#,
+                timeout_ms,
+            )
         }
         "fill" => {
             let sel = cmd.selector.as_deref().unwrap_or("input");
             let val = escape_js_string(cmd.value.as_deref().unwrap_or(""));
-            with_wait_for(
-                sel,
-                &format!(
-                    r#"const proto = el instanceof HTMLTextAreaElement
-                    ? HTMLTextAreaElement.prototype
-                    : HTMLInputElement.prototype;
-                const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
-                setter.call(el, "{val}");
-                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                return "filled";"#
-                ),
-                timeout_ms,
+            let escaped_sel = escape_js_string(sel);
+            format!(
+                r#"(async function() {{
+                    const sel = "{escaped_sel}";
+                    const start = Date.now();
+                    while (Date.now() - start < {timeout_ms}) {{
+                        const el = document.querySelector(sel);
+                        if (el) {{
+                            if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) {{
+                                return "ERROR: element is not fillable";
+                            }}
+                            if (el.disabled) {{
+                                return "ERROR: element is disabled";
+                            }}
+
+                            el.focus();
+                            const previousValue = el.value ?? "";
+                            const proto = el instanceof HTMLTextAreaElement
+                                ? HTMLTextAreaElement.prototype
+                                : HTMLInputElement.prototype;
+                            const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+                            if (!setter) {{
+                                return "ERROR: value setter not found";
+                            }}
+
+                            el.dispatchEvent(new InputEvent('beforeinput', {{
+                                bubbles: true,
+                                cancelable: true,
+                                data: "{val}",
+                                inputType: 'insertText'
+                            }}));
+                            setter.call(el, "{val}");
+                            if (typeof el.setSelectionRange === 'function') {{
+                                el.setSelectionRange(el.value.length, el.value.length);
+                            }}
+                            const tracker = el._valueTracker;
+                            if (tracker) {{
+                                tracker.setValue(previousValue);
+                            }}
+                            el.dispatchEvent(new InputEvent('input', {{
+                                bubbles: true,
+                                cancelable: true,
+                                data: "{val}",
+                                inputType: 'insertText'
+                            }}));
+                            el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+
+                            await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+                            await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+                            if (el.value !== "{val}") {{
+                                continue;
+                            }}
+
+                            return "filled";
+                        }}
+                        await new Promise(r => setTimeout(r, 100));
+                    }}
+                    return "ERROR: timeout waiting for fillable element: " + sel;
+                }})()"#
             )
         }
         "keypress" => {
@@ -331,17 +395,27 @@ fn start_server<R: Runtime>(app_handle: AppHandle<R>) {
 
                     log::info!("[app-test-driver] Received: {cmd:?}");
 
-                    let window = match app.get_webview_window("main") {
-                        Some(w) => w,
-                        None => {
-                            let resp = TestResult {
-                                success: false,
-                                data: None,
-                                error: Some("Main window not found".into()),
-                            };
-                            let _ = writeln!(stream, "{}", serde_json::to_string(&resp).unwrap());
-                            continue;
+                    let deadline =
+                        std::time::Instant::now() + std::time::Duration::from_secs(5);
+                    let window = loop {
+                        if let Some(window) = app.get_webview_window("main") {
+                            break Some(window);
                         }
+
+                        if std::time::Instant::now() >= deadline {
+                            break None;
+                        }
+
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    };
+                    let Some(window) = window else {
+                        let resp = TestResult {
+                            success: false,
+                            data: None,
+                            error: Some("Main window not found".into()),
+                        };
+                        let _ = writeln!(stream, "{}", serde_json::to_string(&resp).unwrap());
+                        continue;
                     };
 
                     let state = app.state::<DriverState>();
