@@ -17,7 +17,7 @@ use tokio::task::JoinHandle;
 use tracing::info;
 use tracing::log::warn;
 
-pub const DEFAULT_COMPACTION_THRESHOLD: f64 = 0.5;
+pub const DEFAULT_COMPACTION_THRESHOLD: f64 = 0.8;
 
 const TOOLCALL_SUMMARIZATION_BATCH_SIZE: usize = 10;
 
@@ -812,9 +812,9 @@ mod tests {
         // Lower compaction threshold means earlier summarization
         assert_eq!(compute_tool_call_cutoff(200_000, 0.3), 10); // 60K effective
         assert_eq!(compute_tool_call_cutoff(1_000_000, 0.5), 75); // 500K effective
-                                                                  // Invalid threshold falls back to default 0.5
-        assert_eq!(compute_tool_call_cutoff(200_000, 0.0), 15); // falls back to 0.5
-        assert_eq!(compute_tool_call_cutoff(200_000, -1.0), 15); // falls back to 0.5
+                                                                  // Invalid threshold falls back to default 0.8
+        assert_eq!(compute_tool_call_cutoff(200_000, 0.0), 24); // falls back to 0.8
+        assert_eq!(compute_tool_call_cutoff(200_000, -1.0), 24); // falls back to 0.8
     }
 
     #[test]

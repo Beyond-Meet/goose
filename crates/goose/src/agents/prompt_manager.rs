@@ -164,19 +164,6 @@ impl<'a> SystemPromptBuilder<'a, PromptManager> {
             "You are a general-purpose AI agent called goose, created by Block".to_string()
         });
 
-        // Prepend SOUL.md persona if it exists (user-editable personality/tone file)
-        let soul_path = crate::config::paths::Paths::config_dir().join("SOUL.md");
-        let base_prompt = if let Ok(soul_content) = std::fs::read_to_string(&soul_path) {
-            let trimmed = soul_content.trim();
-            if trimmed.is_empty() {
-                base_prompt
-            } else {
-                format!("{}\n\n{}", sanitize_unicode_tags(trimmed), base_prompt)
-            }
-        } else {
-            base_prompt
-        };
-
         let mut system_prompt_extras = self.manager.system_prompt_extras.clone();
 
         // Add hints if provided

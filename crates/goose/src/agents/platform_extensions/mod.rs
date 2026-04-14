@@ -267,7 +267,7 @@ pub static PLATFORM_EXTENSIONS: Lazy<HashMap<&'static str, PlatformExtensionDef>
                 name: adaptive_memory::EXTENSION_NAME,
                 display_name: "Adaptive Memory",
                 description: "Persistent memory that learns user preferences, environment facts, and lessons across sessions",
-                default_enabled: true,
+                default_enabled: false,
                 unprefixed_tools: true,
                 hidden: false,
                 client_factory: |ctx| Box::new(adaptive_memory::AdaptiveMemoryClient::new(ctx).unwrap()),
