@@ -739,8 +739,24 @@ mod tests {
         assert!(result.is_error.unwrap_or(false));
     }
 
+    // Helper to clean up test skills from real config dir
+    struct TestSkillGuard(&'static str);
+    impl TestSkillGuard {
+        fn new(name: &'static str) -> Self {
+            // Clean before test in case previous run panicked
+            let _ = fs::remove_dir_all(Paths::config_dir().join("skills").join(name));
+            Self(name)
+        }
+    }
+    impl Drop for TestSkillGuard {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(Paths::config_dir().join("skills").join(self.0));
+        }
+    }
+
     #[tokio::test]
     async fn test_create_skill_writes_to_disk() {
+        let _guard = TestSkillGuard::new("_test-create-skill");
         let temp_dir = TempDir::new().unwrap();
 
         let client = SkillsClient {
@@ -749,8 +765,8 @@ mod tests {
         };
 
         let args: JsonObject = serde_json::from_value(serde_json::json!({
-            "name": "test-skill",
-            "content": "---\nname: test-skill\ndescription: A test\n---\nDo stuff."
+            "name": "_test-create-skill",
+            "content": "---\nname: _test-create-skill\ndescription: A test\n---\nDo stuff."
         }))
         .unwrap();
 
@@ -768,13 +784,10 @@ mod tests {
         assert!(text.contains("Created skill"));
 
         // Verify file exists
-        let skill_path = Paths::config_dir().join("skills/test-skill/SKILL.md");
+        let skill_path = Paths::config_dir().join("skills/_test-create-skill/SKILL.md");
         assert!(skill_path.exists());
         let content = fs::read_to_string(&skill_path).unwrap();
         assert!(content.contains("Do stuff."));
-
-        // Cleanup
-        let _ = fs::remove_dir_all(Paths::config_dir().join("skills/test-skill"));
     }
 
     #[tokio::test]
@@ -835,6 +848,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_patch_skill_updates_content() {
+        let _guard = TestSkillGuard::new("_test-patch-skill");
         let temp_dir = TempDir::new().unwrap();
 
         // Create the skill via create_skill (writes to Paths::config_dir())
@@ -845,8 +859,8 @@ mod tests {
 
         let ctx = ToolCallContext::new("test".to_string(), None, None);
         let create_args: JsonObject = serde_json::from_value(serde_json::json!({
-            "name": "patch-test-2",
-            "content": "---\nname: patch-test-2\ndescription: Test\n---\nStep 1: Do old thing.\nStep 2: Done."
+            "name": "_test-patch-skill",
+            "content": "---\nname: _test-patch-skill\ndescription: Test\n---\nStep 1: Do old thing.\nStep 2: Done."
         }))
         .unwrap();
         let create_result = client
@@ -873,7 +887,7 @@ mod tests {
         .unwrap();
 
         let patch_args: JsonObject = serde_json::from_value(serde_json::json!({
-            "name": "patch-test-2",
+            "name": "_test-patch-skill",
             "old_text": "Do old thing.",
             "new_text": "Do new thing."
         }))
@@ -890,14 +904,11 @@ mod tests {
 
         assert!(!result.is_error.unwrap_or(false));
 
-        let skill_path = Paths::config_dir().join("skills/patch-test-2/SKILL.md");
+        let skill_path = Paths::config_dir().join("skills/_test-patch-skill/SKILL.md");
         let content = fs::read_to_string(&skill_path).unwrap();
         assert!(content.contains("Do new thing."));
         assert!(!content.contains("Do old thing."));
         assert!(content.contains("Step 2: Done."));
-
-        // Cleanup
-        let _ = fs::remove_dir_all(Paths::config_dir().join("skills/patch-test-2"));
     }
 
     #[tokio::test]

@@ -253,20 +253,7 @@ async fn run_knowledge_extraction(
         .await
         .unwrap_or_default();
 
-    let review_tools: Vec<Tool> = all_tools
-        .into_iter()
-        .filter(|t| {
-            let name: &str = &t.name;
-            let is_memory = name == "memory" || name.ends_with("__memory");
-            let is_skill = name == "create_skill"
-                || name == "patch_skill"
-                || name == "load_skill"
-                || name.ends_with("__create_skill")
-                || name.ends_with("__patch_skill")
-                || name.ends_with("__load_skill");
-            (scope.include_memory_tools && is_memory) || (scope.include_skill_tools && is_skill)
-        })
-        .collect();
+    let review_tools = filter_review_tools(all_tools, &scope);
 
     if review_tools.is_empty() {
         debug!("No relevant tools found, skipping {} extraction", task_name);
@@ -365,4 +352,198 @@ async fn run_knowledge_extraction(
         task_name, tool_calls_made
     );
     Ok(())
+}
+
+/// Filter tools to just the ones relevant for a given review scope.
+/// Extracted for testability.
+fn filter_review_tools(all_tools: Vec<Tool>, scope: &ReviewScope) -> Vec<Tool> {
+    all_tools
+        .into_iter()
+        .filter(|t| {
+            let name: &str = &t.name;
+            let is_memory = name == "memory" || name.ends_with("__memory");
+            let is_skill = name == "create_skill"
+                || name == "patch_skill"
+                || name == "load_skill"
+                || name.ends_with("__create_skill")
+                || name.ends_with("__patch_skill")
+                || name.ends_with("__load_skill");
+            (scope.include_memory_tools && is_memory) || (scope.include_skill_tools && is_skill)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rmcp::model::Tool;
+
+    fn make_tool(name: &str) -> Tool {
+        let schema: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_value(serde_json::json!({"type": "object"})).unwrap();
+        Tool::new(name.to_string(), "test".to_string(), schema)
+    }
+
+    fn test_tools() -> Vec<Tool> {
+        vec![
+            make_tool("memory"),
+            make_tool("platform__memory"),
+            make_tool("create_skill"),
+            make_tool("patch_skill"),
+            make_tool("load_skill"),
+            make_tool("skills__create_skill"),
+            make_tool("skills__patch_skill"),
+            make_tool("skills__load_skill"),
+            make_tool("read_file"),
+            make_tool("write_file"),
+            make_tool("developer__shell"),
+        ]
+    }
+
+    #[test]
+    fn test_filter_memory_tools_only() {
+        let tools = test_tools();
+        let scope = ReviewScope {
+            include_memory_tools: true,
+            include_skill_tools: false,
+        };
+        let filtered = filter_review_tools(tools, &scope);
+        let names: Vec<&str> = filtered.iter().map(|t| t.name.as_ref()).collect();
+        assert_eq!(names, vec!["memory", "platform__memory"]);
+    }
+
+    #[test]
+    fn test_filter_skill_tools_only() {
+        let tools = test_tools();
+        let scope = ReviewScope {
+            include_memory_tools: false,
+            include_skill_tools: true,
+        };
+        let filtered = filter_review_tools(tools, &scope);
+        let names: Vec<&str> = filtered.iter().map(|t| t.name.as_ref()).collect();
+        assert_eq!(
+            names,
+            vec![
+                "create_skill",
+                "patch_skill",
+                "load_skill",
+                "skills__create_skill",
+                "skills__patch_skill",
+                "skills__load_skill",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_filter_combined_tools() {
+        let tools = test_tools();
+        let scope = ReviewScope {
+            include_memory_tools: true,
+            include_skill_tools: true,
+        };
+        let filtered = filter_review_tools(tools, &scope);
+        let names: Vec<&str> = filtered.iter().map(|t| t.name.as_ref()).collect();
+        assert_eq!(
+            names,
+            vec![
+                "memory",
+                "platform__memory",
+                "create_skill",
+                "patch_skill",
+                "load_skill",
+                "skills__create_skill",
+                "skills__patch_skill",
+                "skills__load_skill",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_filter_excludes_unrelated_tools() {
+        let tools = test_tools();
+        let scope = ReviewScope {
+            include_memory_tools: true,
+            include_skill_tools: true,
+        };
+        let filtered = filter_review_tools(tools, &scope);
+        let names: Vec<&str> = filtered.iter().map(|t| t.name.as_ref()).collect();
+        assert!(!names.contains(&"read_file"));
+        assert!(!names.contains(&"write_file"));
+        assert!(!names.contains(&"developer__shell"));
+    }
+
+    #[test]
+    fn test_filter_empty_when_no_scope() {
+        let tools = test_tools();
+        let scope = ReviewScope {
+            include_memory_tools: false,
+            include_skill_tools: false,
+        };
+        let filtered = filter_review_tools(tools, &scope);
+        assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn test_prompt_selection_memory_only() {
+        let review_memory = true;
+        let review_skills = false;
+        let prompt = if review_memory && review_skills {
+            COMBINED_REVIEW_PROMPT
+        } else if review_skills {
+            SKILL_REVIEW_PROMPT
+        } else {
+            MEMORY_REVIEW_PROMPT
+        };
+        assert!(prompt.contains("persistent memory"));
+        assert!(!prompt.contains("skill"));
+    }
+
+    #[test]
+    fn test_prompt_selection_skills_only() {
+        let review_memory = false;
+        let review_skills = true;
+        let prompt = if review_memory && review_skills {
+            COMBINED_REVIEW_PROMPT
+        } else if review_skills {
+            SKILL_REVIEW_PROMPT
+        } else {
+            MEMORY_REVIEW_PROMPT
+        };
+        assert!(prompt.contains("skill"));
+    }
+
+    #[test]
+    fn test_prompt_selection_combined() {
+        let review_memory = true;
+        let review_skills = true;
+        let prompt = if review_memory && review_skills {
+            COMBINED_REVIEW_PROMPT
+        } else if review_skills {
+            SKILL_REVIEW_PROMPT
+        } else {
+            MEMORY_REVIEW_PROMPT
+        };
+        assert!(prompt.contains("Memory"));
+        assert!(prompt.contains("Skills"));
+    }
+
+    #[test]
+    fn test_trigger_thresholds() {
+        // Memory review fires at DEFAULT_MEMORY_REVIEW_INTERVAL turns
+        assert_eq!(DEFAULT_MEMORY_REVIEW_INTERVAL, 5);
+        assert!(5 >= DEFAULT_MEMORY_REVIEW_INTERVAL);
+        assert!(!(4 >= DEFAULT_MEMORY_REVIEW_INTERVAL));
+
+        // Skill review fires at DEFAULT_SKILL_REVIEW_ITERATIONS tool calls
+        assert_eq!(DEFAULT_SKILL_REVIEW_ITERATIONS, 10);
+        assert!(10u32 >= DEFAULT_SKILL_REVIEW_ITERATIONS);
+        assert!(!(9u32 >= DEFAULT_SKILL_REVIEW_ITERATIONS));
+    }
+
+    #[test]
+    fn test_max_review_tool_calls_limit() {
+        // Sanity check — shouldn't be unbounded
+        assert!(MAX_REVIEW_TOOL_CALLS > 0);
+        assert!(MAX_REVIEW_TOOL_CALLS <= 20);
+    }
 }
