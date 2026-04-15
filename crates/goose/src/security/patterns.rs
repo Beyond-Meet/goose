@@ -47,16 +47,12 @@ impl RiskLevel {
 /// Comprehensive list of dangerous command patterns
 pub const THREAT_PATTERNS: &[ThreatPattern] = &[
     // Critical filesystem destruction patterns
-    ThreatPattern {
-        name: "rm_rf_root",
-        pattern: r"rm\s+(-[rf]*[rf][rf]*|--recursive|--force).*[/\\]",
-        description: "Recursive file deletion with rm -rf",
-        risk_level: RiskLevel::High,
-        category: ThreatCategory::FileSystemDestruction,
-    },
+    // NOTE: rm_rf_root removed — it matched ANY `rm -rf /path` including
+    // `rm -rf /tmp/project-clone` which is a normal dev workflow.
+    // rm_rf_system (below) covers the dangerous system directories.
     ThreatPattern {
         name: "rm_rf_system",
-        pattern: r"rm\s+(-[rf]*[rf][rf]*|--recursive|--force).*(bin|etc|usr|var|sys|proc|dev|boot|lib|opt|srv|tmp)",
+        pattern: r"rm\s+(-[rf]*[rf][rf]*|--recursive|--force).*/(bin|etc|usr|var|sys|proc|dev|boot|lib|opt|srv)\b",
         description: "Recursive deletion of system directories",
         risk_level: RiskLevel::Critical,
         category: ThreatCategory::FileSystemDestruction,
@@ -114,8 +110,8 @@ pub const THREAT_PATTERNS: &[ThreatPattern] = &[
     },
     ThreatPattern {
         name: "password_file_access",
-        pattern: r"(cat|grep|awk|sed).*(/etc/passwd|/etc/shadow|\.password|\.env)",
-        description: "Password file access",
+        pattern: r"(cat|grep|awk|sed).*(/etc/shadow|\.password)",
+        description: "Password/shadow file access",
         risk_level: RiskLevel::High,
         category: ThreatCategory::DataExfiltration,
     },
@@ -143,7 +139,7 @@ pub const THREAT_PATTERNS: &[ThreatPattern] = &[
     },
     ThreatPattern {
         name: "hosts_file_modification",
-        pattern: r"echo.*>.*(/etc/hosts|hosts\.txt)",
+        pattern: r"echo.*>(>?)\s*(/etc/hosts|hosts\.txt)|echo.*\|\s*(sudo\s+)?tee\s+(-a\s+)?/etc/hosts",
         description: "Hosts file modification",
         risk_level: RiskLevel::Medium,
         category: ThreatCategory::SystemModification,
@@ -200,21 +196,15 @@ pub const THREAT_PATTERNS: &[ThreatPattern] = &[
         risk_level: RiskLevel::High,
         category: ThreatCategory::PrivilegeEscalation,
     },
-    // Command injection patterns
-    ThreatPattern {
-        name: "command_substitution",
-        pattern: r"\$\([^)]*[;&|><][^)]*\)|`[^`]*[;&|><][^`]*`",
-        description: "Command substitution with shell operators",
-        risk_level: RiskLevel::High,
-        category: ThreatCategory::CommandInjection,
-    },
-    ThreatPattern {
-        name: "shell_metacharacters",
-        pattern: r"[;&|`$(){}[\]\\]",
-        description: "Shell metacharacters in input",
-        risk_level: RiskLevel::Low,
-        category: ThreatCategory::CommandInjection,
-    },
+    // NOTE: command_substitution and shell_metacharacters patterns removed.
+    // They caused excessive false positives on legitimate shell scripts:
+    //   VAR=$(grep ... | head -1)    — variable assignment
+    //   echo "$(date)" && ls          — command substitution
+    //   RESULT=$(echo "1+1" | bc)     — arithmetic
+    //   $(wc -c < file)               — file size checks
+    // The ML classifier handles these patterns with much higher accuracy.
+    // When the classifier is unavailable, these patterns generated ~75% of
+    // all false positives at exactly 0.675 confidence.
     ThreatPattern {
         name: "encoded_commands",
         pattern: r"(base64|hex|url).*decode.*\|\s*(bash|sh)",
@@ -237,20 +227,10 @@ pub const THREAT_PATTERNS: &[ThreatPattern] = &[
         risk_level: RiskLevel::High,
         category: ThreatCategory::CommandInjection,
     },
-    ThreatPattern {
-        name: "string_concatenation_obfuscation",
-        pattern: r"(\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*){3,}",
-        description: "String concatenation obfuscation",
-        risk_level: RiskLevel::Medium,
-        category: ThreatCategory::CommandInjection,
-    },
-    ThreatPattern {
-        name: "character_escaping",
-        pattern: r"\\[x][0-9a-fA-F]{2}|\\[0-7]{3}|\\[nrtbfav\\]",
-        description: "Character escaping for obfuscation",
-        risk_level: RiskLevel::Low,
-        category: ThreatCategory::CommandInjection,
-    },
+    // NOTE: string_concatenation_obfuscation removed — matched JS template
+    // literals like ${Utils.escapeHtml(doc.url)} in heredocs and code files.
+    // NOTE: character_escaping removed — \\n, \\t, etc. are standard in shell
+    // scripts and code. Too noisy for practical use.
     ThreatPattern {
         name: "eval_with_variables",
         pattern: r"eval\s+\$[A-Za-z_][A-Za-z0-9_]*|\beval\s+.*\$\{",
@@ -265,13 +245,9 @@ pub const THREAT_PATTERNS: &[ThreatPattern] = &[
         risk_level: RiskLevel::Medium,
         category: ThreatCategory::CommandInjection,
     },
-    ThreatPattern {
-        name: "environment_variable_abuse",
-        pattern: r"(export|env)\s+[A-Z_]+=.*[;&|]|PATH=.*[;&|]",
-        description: "Environment variable manipulation",
-        risk_level: RiskLevel::Medium,
-        category: ThreatCategory::SystemModification,
-    },
+    // NOTE: environment_variable_abuse removed — `export PATH=...; command`
+    // and `export VAR=value && tool` are standard shell patterns used
+    // constantly by goose for tool setup (slack-cli, gdrive-cli, hermit, etc.).
     ThreatPattern {
         name: "unicode_obfuscation",
         pattern: r"\\u[0-9a-fA-F]{4}|\\U[0-9a-fA-F]{8}",
