@@ -7,7 +7,7 @@ mod writer;
 
 pub(crate) use goose_serve::resolve_goose_binary;
 pub(crate) use goose_serve::GooseServeProcess;
-pub use manager::{AcpSessionInfo, GooseAcpManager};
+pub use manager::{AcpReadResourceContent, AcpSessionInfo, AcpToolInfo, GooseAcpManager};
 pub use registry::{AcpRunningSession, AcpSessionRegistry};
 pub use search::{search_sessions_via_exports, SessionSearchResult};
 pub use writer::TauriMessageWriter;
@@ -122,6 +122,7 @@ impl AcpService {
                 provider_id.clone(),
                 working_dir,
                 None, // no existing agent session ID — goose binary owns sessions
+                writer_impl.assistant_message_id().to_string(),
                 writer,
                 effective_prompt,
                 images,
