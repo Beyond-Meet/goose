@@ -493,6 +493,7 @@ export function SidebarProjectsSection({
                     isActive={isActive}
                     isRunning={session.isRunning ?? false}
                     hasUnread={session.hasUnread ?? false}
+                    reserveActivitySpace={false}
                     onSelect={onSelectSession}
                     onRename={onRenameChat}
                     onArchive={onArchiveChat}
