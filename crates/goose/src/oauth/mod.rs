@@ -101,16 +101,13 @@ pub async fn oauth_flow(
             "OAuth authorization failed, retrying with direct metadata discovery: {}",
             e
         );
-        oauth_state = start_authorization_with_wellknown_fallback(
-            mcp_server_url,
-            &redirect_uri,
-        )
-        .await
-        .map_err(|fallback_err| {
-            anyhow::anyhow!(
-                "OAuth authorization failed: {e}; fallback also failed: {fallback_err}"
-            )
-        })?;
+        oauth_state = start_authorization_with_wellknown_fallback(mcp_server_url, &redirect_uri)
+            .await
+            .map_err(|fallback_err| {
+                anyhow::anyhow!(
+                    "OAuth authorization failed: {e}; fallback also failed: {fallback_err}"
+                )
+            })?;
     }
 
     let authorization_url = oauth_state.get_authorization_url().await?;
