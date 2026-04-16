@@ -294,6 +294,10 @@ run-dev:
     @echo "Running UI..."
     cd ui/desktop && pnpm run start-gui
 
+# Set up the development environment (run once after fresh clone)
+setup:
+    git config core.hooksPath .husky
+
 # Install all dependencies (run once after fresh clone)
 install-deps:
     cd ui/desktop && pnpm install
