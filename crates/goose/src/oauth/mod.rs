@@ -153,26 +153,93 @@ pub async fn oauth_flow(
     Ok(auth_manager)
 }
 
+/// Minimal subset of RFC 9728 Protected Resource Metadata, used only in the fallback
+/// discovery path. The full type in rmcp is not public.
+#[derive(Deserialize)]
+struct ProtectedResourceMetadata {
+    authorization_servers: Option<Vec<String>>,
+}
+
 /// Fallback for when OAuthState::start_authorization_with_metadata_url fails due to
-/// the resource metadata discovery bug. Fetches OAuth metadata directly from the
-/// .well-known/oauth-authorization-server endpoint and creates the session manually.
+/// the resource metadata discovery bug. Follows the MCP spec discovery flow:
+/// 1. Fetch Protected Resource Metadata from .well-known/oauth-protected-resource
+/// 2. Extract the authorization server URL
+/// 3. Fetch Authorization Server Metadata from that URL
+/// 4. Create the session manually using rmcp's public APIs
 async fn start_authorization_with_wellknown_fallback(
     mcp_server_url: &str,
     redirect_uri: &str,
 ) -> Result<OAuthState, anyhow::Error> {
     let base_url = Url::parse(mcp_server_url)?;
-    let wellknown_url = format!(
-        "{}/.well-known/oauth-authorization-server",
-        base_url.origin().ascii_serialization()
-    );
-    let metadata = reqwest::get(&wellknown_url)
-        .await?
-        .error_for_status()?
-        .json::<AuthorizationMetadata>()
-        .await?;
+    let origin = base_url.origin().ascii_serialization();
+    let path = base_url.path().trim_matches('/');
 
+    // Step 1: Discover Protected Resource Metadata (RFC 9728)
+    // Try path-specific endpoint first, then root, per the MCP spec.
+    let resource_metadata = {
+        let mut candidates = Vec::new();
+        if !path.is_empty() {
+            candidates.push(format!(
+                "{origin}/.well-known/oauth-protected-resource/{path}"
+            ));
+        }
+        candidates.push(format!("{origin}/.well-known/oauth-protected-resource"));
+
+        let mut result = None;
+        for url in &candidates {
+            if let Ok(resp) = reqwest::get(url).await {
+                if let Ok(meta) = resp.json::<ProtectedResourceMetadata>().await {
+                    result = Some(meta);
+                    break;
+                }
+            }
+        }
+        result.ok_or_else(|| anyhow::anyhow!("no protected resource metadata found"))?
+    };
+
+    // Step 2: Extract authorization server URL
+    let auth_server_url = resource_metadata
+        .authorization_servers
+        .as_ref()
+        .and_then(|servers| servers.first())
+        .ok_or_else(|| anyhow::anyhow!("no authorization_servers in resource metadata"))?;
+
+    // Step 3: Discover Authorization Server Metadata (RFC 8414)
+    // Try path-qualified and root well-known URLs per the MCP spec.
+    let auth_server = Url::parse(auth_server_url)?;
+    let as_origin = auth_server.origin().ascii_serialization();
+    let as_path = auth_server.path().trim_matches('/');
+
+    let as_metadata = {
+        let mut candidates = Vec::new();
+        if !as_path.is_empty() {
+            candidates.push(format!(
+                "{as_origin}/.well-known/oauth-authorization-server/{as_path}"
+            ));
+            candidates.push(format!(
+                "{as_origin}/.well-known/openid-configuration/{as_path}"
+            ));
+        }
+        candidates.push(format!(
+            "{as_origin}/.well-known/oauth-authorization-server"
+        ));
+        candidates.push(format!("{as_origin}/.well-known/openid-configuration"));
+
+        let mut result = None;
+        for url in &candidates {
+            if let Ok(resp) = reqwest::get(url).await {
+                if let Ok(meta) = resp.json::<AuthorizationMetadata>().await {
+                    result = Some(meta);
+                    break;
+                }
+            }
+        }
+        result.ok_or_else(|| anyhow::anyhow!("no authorization server metadata found"))?
+    };
+
+    // Step 4: Create session using rmcp public APIs
     let mut manager = AuthorizationManager::new(mcp_server_url).await?;
-    manager.set_metadata(metadata);
+    manager.set_metadata(as_metadata);
 
     let session = AuthorizationSession::new(
         manager,
