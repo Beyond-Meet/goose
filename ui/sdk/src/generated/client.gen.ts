@@ -13,6 +13,10 @@ import type {
   CheckSecretRequest,
   CheckSecretResponse,
   DeleteSessionRequest,
+  DictationConfigRequest,
+  DictationConfigResponse,
+  DictationTranscribeRequest,
+  DictationTranscribeResponse,
   ExportSessionRequest,
   ExportSessionResponse,
   GetExtensionsRequest,
@@ -45,6 +49,8 @@ import type {
 } from './types.gen.js';
 import {
   zCheckSecretResponse,
+  zDictationConfigResponse,
+  zDictationTranscribeResponse,
   zExportSessionResponse,
   zGetExtensionsResponse,
   zGetProviderDetailsResponse,
@@ -186,5 +192,24 @@ export class GooseExtClient {
 
   async GooseSessionUnarchive(params: UnarchiveSessionRequest): Promise<void> {
     await this.conn.extMethod("_goose/session/unarchive", params);
+  }
+
+  async GooseDictationTranscribe(
+    params: DictationTranscribeRequest,
+  ): Promise<DictationTranscribeResponse> {
+    const raw = await this.conn.extMethod(
+      "_goose/dictation/transcribe",
+      params,
+    );
+    return zDictationTranscribeResponse.parse(
+      raw,
+    ) as DictationTranscribeResponse;
+  }
+
+  async GooseDictationConfig(
+    params: DictationConfigRequest,
+  ): Promise<DictationConfigResponse> {
+    const raw = await this.conn.extMethod("_goose/dictation/config", params);
+    return zDictationConfigResponse.parse(raw) as DictationConfigResponse;
   }
 }
