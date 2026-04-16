@@ -487,4 +487,5 @@ record-mcp-tests: build-test-tools
 
 bundle-goose2:
   cargo build --release --package goose-cli --bin goose
-  @just goose2::build
+  cp target/release/goose target/release/goose-$(rustc --print host-tuple)
+  @just goose2::bundle

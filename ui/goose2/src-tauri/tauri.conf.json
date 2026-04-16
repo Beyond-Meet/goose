@@ -44,6 +44,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": []
+    "externalBin": ["../../../target/release/goose"]
   }
 }

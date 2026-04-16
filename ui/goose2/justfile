@@ -50,6 +50,9 @@ tauri-check:
 # Full CI gate
 ci: check clippy test build tauri-check
 
+bundle:
+    pnpm tauri build
+
 # ── Test ─────────────────────────────────────────────────────
 
 # Run unit/component tests
