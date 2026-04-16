@@ -5554,8 +5554,34 @@
           },
           "src": {
             "type": "string"
+          },
+          "theme": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IconTheme"
+              },
+              {
+                "type": "object"
+              }
+            ]
           }
         }
+      },
+      "IconTheme": {
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "light"
+            ]
+          },
+          {
+            "type": "string",
+            "enum": [
+              "dark"
+            ]
+          }
+        ]
       },
       "ImageContent": {
         "type": "object",
