@@ -2,7 +2,9 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
@@ -13,17 +15,39 @@
     {
       "identifier": "opener:allow-open-path",
       "allow": [
-        { "path": "$HOME/**" },
-        { "path": "$HOME/.goose/**" },
-        { "path": "$HOME/.goose/artifacts/**" },
-        { "path": "$TEMP/**" },
-        { "path": "/Volumes/**" },
-        { "path": "/mnt/**" },
-        { "path": "/workspace/**" },
-        { "path": "/workspaces/**" },
-        { "path": "/opt/**" },
-        { "path": "/srv/**" },
-        { "path": "*:/**" }
+        {
+          "path": "$HOME/**"
+        },
+        {
+          "path": "$HOME/.goose/**"
+        },
+        {
+          "path": "$HOME/.goose/artifacts/**"
+        },
+        {
+          "path": "$TEMP/**"
+        },
+        {
+          "path": "/Volumes/**"
+        },
+        {
+          "path": "/mnt/**"
+        },
+        {
+          "path": "/workspace/**"
+        },
+        {
+          "path": "/workspaces/**"
+        },
+        {
+          "path": "/opt/**"
+        },
+        {
+          "path": "/srv/**"
+        },
+        {
+          "path": "*:/**"
+        }
       ]
     },
     "window-state:allow-restore-state",
@@ -31,6 +55,7 @@
     "dialog:allow-open",
     "dialog:allow-save",
     "app-test-driver:default",
-    "core:webview:allow-set-webview-zoom"
+    "core:webview:allow-set-webview-zoom",
+    "shell:default"
   ]
 }

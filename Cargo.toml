@@ -2,9 +2,9 @@
 members = [
     "crates/*",
     # Mainly for cargo-machete to not error out during inspection.
-    "vendor/v8"
+    "vendor/v8",
+    "ui/goose2/src-tauri",
 ]
-exclude = ["ui/goose2/src-tauri"]
 resolver = "2"
 
 [workspace.package]
