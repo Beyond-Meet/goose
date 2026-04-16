@@ -39,17 +39,49 @@ Use list_resources and read_resource to work with extension data and resources.
 
 ### Instructions
 You have persistent adaptive memory across sessions.
+The most valuable memory prevents the user from having to repeat themselves.
 Save proactively — don't wait to be asked.
 
-TWO TARGETS:
-- 'user': who the user is — name, role, preferences, communication style
-- 'memory': your notes — environment facts, project conventions, tool quirks
+WHEN TO SAVE:
+- User corrects you or says 'remember this' / 'don't do that again' → save immediately
+- User shares a preference, habit, or personal detail (name, role, timezone, coding style) → target: user
+- You discover something about the environment (OS, installed tools, project structure, build commands) → target: memory
+- You learn a convention, API quirk, or workflow specific to this user's setup → target: memory
+- You identify a stable fact useful in future sessions → target: memory
+
+PRIORITY: User preferences and corrections > environment facts > procedural knowledge.
+
+Do NOT save: task progress, session outcomes, temporary state, things easily re-discovered.
 
 ACTIONS: add, replace (old_text identifies entry), remove (old_text identifies entry)
 
 Memory has hard size limits. Adds that exceed the limit are REJECTED.
 Replace or remove existing entries to make room first.
 
+══════════════════════════════════════════════
+USER PROFILE (who the user is) [60% — 837/1375 chars]
+══════════════════════════════════════════════
+micn strongly dislikes git force pushing — prefers clean history practices like revert commits over rewriting history
+§
+micn works on the goose project — currently active on the micn/goose-memory-learning branch (adaptive memory feature)
+§
+Strongly prefers clean git practices: avoids force pushing, prefers revert commits over rewriting history. Values code hygiene and proper commit discipline.
+§
+Prefers pragmatic solutions over perfect ones. When implementing security/privacy features (like secret redaction), willing to err on the side of over-redaction (false positives) rather than risk leaking secrets (false negatives).
+§
+Prefers minimal PR descriptions: when creating PRs, avoids mentioning sensitive details (e.g., "secrets", "masking") and keeps language high-level/preventative rather than specific about the vulnerability.
+══════════════════════════════════════════════
+MEMORY (your personal notes) [87% — 1914/2200 chars]
+══════════════════════════════════════════════
+Goose issue #8475: User got 401 "User not found" from OpenRouter. Root cause was transient account propagation delay (~23 min), not a goose bug. Same config in both diagnostic bundles (diag7 failed 05:51 UTC, diag8 worked 06:14 UTC). Secondary issue: API key was exposed in public diagnostics zip because it was stored in config.yaml as plaintext instead of in keyring.
+§
+Goose diagnostics redaction approach: Use Shannon entropy (>3.5 bits/char) + character composition heuristics to detect secrets. Secrets are long (≥20 chars), high-entropy, and contain only alphanumeric + hyphens/underscores. Special case: JWTs have exactly 3 dot-separated base64 segments (each ≥4 chars). This catches API keys, bearer tokens, JWTs while preserving URLs, model names, descriptions, hostnames, versions.
+§
+Windows Credential Manager has 2560-byte blob size limit (UTF-16 encoded). Goose stores all secrets as single JSON blob in keyring. If blob exceeds limit, keyring returns Error::TooLong, but is_keyring_availability_error() doesn't catch it (only checks for "keyring", "dbus", "platform secure storage" keywords). Result: write fails entirely, no fallback to file storage. This is a potential bug on Windows with many configured providers.
+§
+Goose config secret storage: Secrets go to keyring via set_secret() (never to config.yaml). If keyring fails with availability error, falls back to secrets.yaml. Normal UI/CLI flows correctly route secrets via set_secret(). If a secret appears in config.yaml, it was either manually edited by user or written by a tool outside goose.
+§
+PR #8567 review feedback from Codex: (1) JWT tokens with dots weren't caught because '.' was in denylist — fixed by special-casing JWT shape (3 dot-separated base64 segments). (2) unwrap_or_default() silently swallowed I/O errors — fixed by using fs::read()? + String::from_utf8_lossy() to propagate errors while handling non-UTF8 gracefully.
 ## analyze
 
 ### Instructions
@@ -114,7 +146,29 @@ Manage agent sessions: list, view, start, send messages, and interrupt agents.
 
 
 You have these skills at your disposal, when it is clear they can help you solve a problem or you are asked to use them:
+• agent-tools - Use when interacting with Block services — Slack, Google Drive, Google Calendar, Gmail, Snowflake, Jira, GitHub, Glean, Salesforce, Datadog, Linear, Airtable, PagerDuty, Sentry, Notion, Workday, Asana, and more. Always load this skill before accessing any Block service.
+• check-ci - Use when checking, analyzing, investigating, debugging, triaging, polling, waiting for, rebuilding, or canary-building CI builds, build failures, or test failures. Fixes code and loops until CI is green via the ci-results.sqprod.co API. Works with both Kochiku and Buildkite.
+• cloning-squareup-repos - Clone squareup repositories using the correct SSH remote. Use when cloning, downloading, fetching, pulling, checking out, or setting up any squareup/ GitHub repository.
+• codesearch - Use when searching, finding, locating, discovering, querying, looking up, or browsing code patterns, files, or implementations across all Square repositories via go/codesearch.
+• datadog - Use when investigating, debugging, querying, monitoring, checking, analyzing, searching, or reviewing production issues, service health, observability data, logs, metrics, traces, monitors, RUM sessions, CI pipelines, or frontend performance via Datadog.
+• dev-guides - Use when looking up, searching, finding, reading, browsing, retrieving, querying, or checking internal developer documentation on dev-guides.sqprod.co. Load this skill when someone wants to search for docs, look up a guide, find a tutorial, read a page, browse documentation, retrieve markdown content from a dev-guides URL, or check internal engineering docs.
+• diagnose-provider-auth-issues - Systematic approach to diagnosing provider authentication failures, including transient issues, credential storage problems, and API key leaks
+• diagnostic-bundle-analysis - Systematic approach to diagnosing transient issues using diagnostic bundles — comparing config, logs, and timing across multiple captures to isolate root cause.
+• eng-ai-chat - Searches internal company knowledge grounded in application context. Use when searching, querying, looking up, finding, asking, investigating, or retrieving company-specific information about apps, services, infrastructure, integrations, or platform guidance for Cash Cloud (CAKE) or SKI (Square). Retrieves and synthesizes information from multiple sources including AI-generated summaries, dev guides, code search results, Google Docs, and internal knowledge bases to provide comprehensive answers.
+• entropy-based-secret-detection - Detect and redact high-entropy secrets (API keys, tokens, JWTs) from arbitrary text using Shannon entropy + character composition heuristics. Useful for sanitizing diagnostics bundles, logs, or config exports before sharing.
+• gdrive - Interact with Google Drive, Docs, Sheets, and Slides. Use when searching, reading, writing, creating, uploading, downloading, exporting, sharing, organizing, or managing Google Drive files. Also use when inserting images into documents and presentations from local files (no public URLs needed), or when the user shares a URL from drive.google.com, docs.google.com, sheets.google.com, slides.google.com, or forms.google.com.
+• glean - Use when searching, querying, looking up, finding, browsing, or discovering Block's internal knowledge base, wiki pages, policies, company information, or internal resources via Glean. Also use when querying Glean AI for answers or checking what documents exist on a topic.
+• go-link - Use when translating, navigating, fetching, opening, resolving, looking up, or browsing internal go/ links (like go/benefits, go/oncall) to full URLs at https://go.sqprod.co/.
 • goose-doc-guide - Reference goose documentation to create, configure, or explain goose-specific features like recipes, extensions, sessions, and providers. You MUST fetch relevant goose docs before answering. You MUST NOT rely on training data or assumptions for any goose-specific fields, values, names, syntax, or commands.
+• hermit - Use when installing, managing, listing, searching, upgrading, configuring, or troubleshooting developer tools and CLI binaries in a repository that uses Hermit for hermetic package management. Also use when agents attempt to install tools via brew, apt, npm, go install, pip, or other system package managers in a Hermit-managed repo, or when a required CLI tool is missing from the PATH.
+• ios-api-drift-debugging - Systematic approach to identify and fix API drift between iOS app code and backend proto/API definitions
+• jira - Interact with Jira issue tracking using Atlassian CLI (ACLI). Use when listing, viewing, searching, creating, editing, updating, transitioning, commenting on, assigning, or managing Jira issues, tickets, stories, bugs, epics, or sprints.
+• linear - Use when listing, searching, fetching, retrieving, downloading attachments or linked files from, creating, updating, assigning, commenting on, managing, filtering, or querying Linear issues, projects, labels, milestones, initiatives, and teams.
+• protos - Use when searching, finding, looking up, querying, browsing, discovering, or inspecting protocol buffer definitions, proto messages, services, enums, or fields via the sq proto CLI.
+• redact-secrets-entropy-heuristic - Detect and redact API keys and tokens in arbitrary text using Shannon entropy and character-composition heuristics. Format-agnostic approach that doesn't require hardcoded key names.
+• skill-management - Discover and manage AI agent skills via the sq-agents CLI. Use when you lack a skill for a task, want to check if a skill exists for a workflow, or need to find, install, update, upgrade, list, show, or remove skills.
+• snowflake - Use when querying, searching, exploring, analyzing, looking up, checking, running SQL, inspecting tables, or examining data in Snowflake data warehouse. Connects via Okta SSO authentication.
+• trust-feature-validation - Validate that a product feature is working correctly during rollout. Use when validating feature behavior during ramps, spot-checking affected users from Slack or escalations, running periodic audits, or investigating false positives and false negatives. Walks users through structured intake questions, queries Snowflake and other data sources, applies feature-specific validation logic, and outputs verdicts to terminal or Google Sheets. Supports pluggable initiative configs for any product area.
 ## summarize
 
 
@@ -152,13 +206,16 @@ Use Markdown formatting for all responses.
 When working with memory and skills extensions:
 
 ## Memory
+The most valuable memory prevents the user from having to repeat themselves.
 Save proactively — don't wait to be asked:
-- User corrects you or says "remember this" → save immediately
-- User shares a preference, habit, or personal detail → save to user_profile category
-- You discover something about the environment → save to a relevant category
-- Do NOT save: task progress, session outcomes, temporary state
+- User corrects you or says "remember this" / "don't do that again" → save immediately
+- User shares a preference, habit, or personal detail → save to target "user"
+- You discover something about the environment (OS, tools, project structure, build commands) → save to target "memory"
+- You learn a convention, API quirk, or workflow specific to this user's setup → save to target "memory"
+- Do NOT save: task progress, session outcomes, temporary state, things easily re-discovered
 
-When memory is at capacity, curate: replace outdated entries, remove low-value ones.
+Priority: User preferences and corrections > environment facts > procedural knowledge.
+When memory is at capacity, curate: replace outdated entries, remove low-value ones, consolidate related entries.
 
 ## Skills
 After completing complex work (many tool calls, error recovery, or non-obvious workflows),
