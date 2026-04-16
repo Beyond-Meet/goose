@@ -58,30 +58,6 @@ ACTIONS: add, replace (old_text identifies entry), remove (old_text identifies e
 Memory has hard size limits. Adds that exceed the limit are REJECTED.
 Replace or remove existing entries to make room first.
 
-══════════════════════════════════════════════
-USER PROFILE (who the user is) [60% — 837/1375 chars]
-══════════════════════════════════════════════
-micn strongly dislikes git force pushing — prefers clean history practices like revert commits over rewriting history
-§
-micn works on the goose project — currently active on the micn/goose-memory-learning branch (adaptive memory feature)
-§
-Strongly prefers clean git practices: avoids force pushing, prefers revert commits over rewriting history. Values code hygiene and proper commit discipline.
-§
-Prefers pragmatic solutions over perfect ones. When implementing security/privacy features (like secret redaction), willing to err on the side of over-redaction (false positives) rather than risk leaking secrets (false negatives).
-§
-Prefers minimal PR descriptions: when creating PRs, avoids mentioning sensitive details (e.g., "secrets", "masking") and keeps language high-level/preventative rather than specific about the vulnerability.
-══════════════════════════════════════════════
-MEMORY (your personal notes) [87% — 1914/2200 chars]
-══════════════════════════════════════════════
-Goose issue #8475: User got 401 "User not found" from OpenRouter. Root cause was transient account propagation delay (~23 min), not a goose bug. Same config in both diagnostic bundles (diag7 failed 05:51 UTC, diag8 worked 06:14 UTC). Secondary issue: API key was exposed in public diagnostics zip because it was stored in config.yaml as plaintext instead of in keyring.
-§
-Goose diagnostics redaction approach: Use Shannon entropy (>3.5 bits/char) + character composition heuristics to detect secrets. Secrets are long (≥20 chars), high-entropy, and contain only alphanumeric + hyphens/underscores. Special case: JWTs have exactly 3 dot-separated base64 segments (each ≥4 chars). This catches API keys, bearer tokens, JWTs while preserving URLs, model names, descriptions, hostnames, versions.
-§
-Windows Credential Manager has 2560-byte blob size limit (UTF-16 encoded). Goose stores all secrets as single JSON blob in keyring. If blob exceeds limit, keyring returns Error::TooLong, but is_keyring_availability_error() doesn't catch it (only checks for "keyring", "dbus", "platform secure storage" keywords). Result: write fails entirely, no fallback to file storage. This is a potential bug on Windows with many configured providers.
-§
-Goose config secret storage: Secrets go to keyring via set_secret() (never to config.yaml). If keyring fails with availability error, falls back to secrets.yaml. Normal UI/CLI flows correctly route secrets via set_secret(). If a secret appears in config.yaml, it was either manually edited by user or written by a tool outside goose.
-§
-PR #8567 review feedback from Codex: (1) JWT tokens with dots weren't caught because '.' was in denylist — fixed by special-casing JWT shape (3 dot-separated base64 segments). (2) unwrap_or_default() silently swallowed I/O errors — fixed by using fs::read()? + String::from_utf8_lossy() to propagate errors while handling non-UTF8 gracefully.
 ## analyze
 
 ### Instructions
