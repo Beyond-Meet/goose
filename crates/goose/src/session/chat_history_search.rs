@@ -123,6 +123,10 @@ impl<'a> ChatHistorySearch<'a> {
     }
 
     fn parse_keywords(&self) -> Vec<String> {
+        // Treat "*" as a wildcard that matches all messages
+        if self.query.trim() == "*" {
+            return vec!["%".to_string()];
+        }
         self.query
             .split_whitespace()
             .map(|word| format!("%{}%", word.to_lowercase()))

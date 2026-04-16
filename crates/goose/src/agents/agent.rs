@@ -1824,7 +1824,14 @@ impl Agent {
             let should_review_skills =
                 final_tool_count as u32 >= super::knowledge_review::DEFAULT_SKILL_REVIEW_ITERATIONS;
 
-            if should_review_memory || should_review_skills {
+            // Only run background reviews if adaptive_memory is actually enabled
+            let adaptive_memory_enabled = self.extension_manager
+                .is_extension_enabled(
+                    crate::agents::platform_extensions::adaptive_memory::EXTENSION_NAME,
+                )
+                .await;
+
+            if adaptive_memory_enabled && (should_review_memory || should_review_skills) {
                 if should_review_memory {
                     self.turns_since_memory_review.store(0, std::sync::atomic::Ordering::Relaxed);
                 }
