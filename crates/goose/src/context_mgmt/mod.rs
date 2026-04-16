@@ -148,11 +148,22 @@ pub async fn compact_messages(
 
     let messages_to_compact = messages.as_slice();
 
+    let adaptive_memory_active = match extension_manager {
+        Some(ext_mgr) => {
+            ext_mgr
+                .is_extension_enabled(
+                    crate::agents::platform_extensions::adaptive_memory::EXTENSION_NAME,
+                )
+                .await
+        }
+        None => false,
+    };
+
     let (summary_message, summarization_usage) = do_compact(
         provider,
         session_id,
         messages_to_compact,
-        extension_manager.is_some(),
+        adaptive_memory_active,
     )
     .await?;
 

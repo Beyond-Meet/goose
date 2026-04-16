@@ -339,6 +339,9 @@ async fn run_knowledge_extraction(
         messages.push(response_message);
 
         for tool_request in &tool_requests {
+            if tool_calls_made >= MAX_REVIEW_TOOL_CALLS {
+                break;
+            }
             tool_calls_made += 1;
 
             let tool_call = match &tool_request.tool_call {

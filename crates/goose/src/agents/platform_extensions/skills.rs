@@ -357,7 +357,10 @@ pub async fn handle_patch_skill(
     }
 
     let goose_skills_dir = Paths::config_dir().join("skills");
-    if !skill.path.starts_with(&goose_skills_dir) {
+    let canonical_skills_dir = std::fs::canonicalize(&goose_skills_dir).unwrap_or(goose_skills_dir);
+    let canonical_skill_path =
+        std::fs::canonicalize(&skill.path).unwrap_or_else(|_| skill.path.clone());
+    if !canonical_skill_path.starts_with(&canonical_skills_dir) {
         return Ok(CallToolResult::error(vec![Content::text(
             "Cannot patch externally installed skills. Create a new skill in goose's directory instead.",
         )]));
