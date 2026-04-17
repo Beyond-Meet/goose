@@ -600,14 +600,9 @@ fn to_nonnegative_u64(value: Option<i32>) -> Option<u64> {
 }
 
 fn build_prompt_usage(session: &Session) -> Option<Usage> {
-    let total = to_nonnegative_u64(session.accumulated_total_tokens)
-        .or_else(|| to_nonnegative_u64(session.total_tokens))?;
-    let input = to_nonnegative_u64(session.accumulated_input_tokens)
-        .or_else(|| to_nonnegative_u64(session.input_tokens))
-        .unwrap_or(0);
-    let output = to_nonnegative_u64(session.accumulated_output_tokens)
-        .or_else(|| to_nonnegative_u64(session.output_tokens))
-        .unwrap_or(0);
+    let total = to_nonnegative_u64(session.total_tokens)?;
+    let input = to_nonnegative_u64(session.input_tokens).unwrap_or(0);
+    let output = to_nonnegative_u64(session.output_tokens).unwrap_or(0);
     Some(Usage::new(total, input, output))
 }
 
@@ -2983,7 +2978,6 @@ pub async fn run(builtins: Vec<String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use goose::conversation::message::{ToolRequest, ToolResponse};
     use goose::providers::errors::ProviderError;
     use rmcp::model::{CallToolRequestParams, Content as RmcpContent};
@@ -3383,8 +3377,8 @@ print(\"hello, world\")
             name: "ACP Session".to_string(),
             user_set_name: false,
             session_type: SessionType::Acp,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Default::default(),
+            updated_at: Default::default(),
             extension_data: goose::session::ExtensionData::default(),
             total_tokens,
             input_tokens,
@@ -3405,7 +3399,7 @@ print(\"hello, world\")
     }
 
     #[test]
-    fn test_build_prompt_usage_prefers_accumulated_tokens() {
+    fn test_build_prompt_usage_uses_current_turn_tokens() {
         let session = make_session_with_usage(
             Some(120),
             Some(80),
@@ -3415,9 +3409,9 @@ print(\"hello, world\")
             Some(150),
         );
         let usage = build_prompt_usage(&session).expect("usage should be present");
-        assert_eq!(usage.total_tokens, 360);
-        assert_eq!(usage.input_tokens, 210);
-        assert_eq!(usage.output_tokens, 150);
+        assert_eq!(usage.total_tokens, 120);
+        assert_eq!(usage.input_tokens, 80);
+        assert_eq!(usage.output_tokens, 40);
     }
 
     #[test]
