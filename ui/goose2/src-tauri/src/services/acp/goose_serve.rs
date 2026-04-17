@@ -54,6 +54,8 @@ impl GooseServeProcess {
         })?;
 
         let mut command: Command = get_goose_command(&app_handle)?;
+        let binary_display =
+            command.as_std().get_program().to_string_lossy().to_string();
 
         command
             .arg("serve")
@@ -68,16 +70,13 @@ impl GooseServeProcess {
             .kill_on_drop(true);
 
         log::info!(
-            "Spawning long-lived goose serve: binary={:?} port={} cwd={:?}",
-            command,
-            port,
-            working_dir,
+            "Spawning long-lived goose serve: binary={binary_display} port={port} cwd={}",
+            working_dir.display(),
         );
 
         let mut child = command.spawn().map_err(|error| {
             format!(
-                "Failed to spawn goose serve (binary: {:?}, cwd: {}): {error}",
-                command,
+                "Failed to spawn goose serve (binary: {binary_display}, cwd: {}): {error}",
                 working_dir.display()
             )
         })?;

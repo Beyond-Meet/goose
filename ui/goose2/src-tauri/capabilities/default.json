@@ -53,7 +53,6 @@
     "dialog:allow-open",
     "dialog:allow-save",
     "app-test-driver:default",
-    "core:webview:allow-set-webview-zoom",
-    "shell:default"
+    "core:webview:allow-set-webview-zoom"
   ]
 }
