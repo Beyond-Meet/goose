@@ -54,8 +54,7 @@ impl GooseServeProcess {
         })?;
 
         let mut command: Command = get_goose_command(&app_handle)?;
-        let binary_display =
-            command.as_std().get_program().to_string_lossy().to_string();
+        let binary_display = command.as_std().get_program().to_string_lossy().to_string();
 
         command
             .arg("serve")
