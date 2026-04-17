@@ -112,6 +112,7 @@ jobs:
         run: pnpm build
 
       - name: Mock goose binary
+        working-directory: .
         run: mkdir -p target/release && touch target/release/goose-$(rustc --print host-tuple)
 
       - name: Check Tauri
@@ -171,6 +172,7 @@ jobs:
           key: ${{ runner.os }}-goose2-cargo-${{ hashFiles('ui/goose2/src-tauri/Cargo.lock') }}
 
       - name: Mock goose binary
+        working-directory: .
         run: mkdir -p target/release && touch target/release/goose-$(rustc --print host-tuple)
 
       - name: Format check
