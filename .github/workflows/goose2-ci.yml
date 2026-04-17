@@ -111,6 +111,9 @@ jobs:
       - name: Build frontend
         run: pnpm build
 
+      - name: Mock goose binary
+        run: touch target/release/goose-$(rustc --print host-tuple)
+
       - name: Check Tauri
         run: cd src-tauri && cargo check
 
