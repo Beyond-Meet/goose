@@ -24,6 +24,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/shared/ui/popover";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/shared/ui/tooltip";
 import { AgentModelPicker } from "./AgentModelPicker";
 import type { ModelOption } from "../types";
@@ -156,6 +161,25 @@ export function ChatInputToolbar({
   const projectTitle = selectedProject?.workingDirs.length
     ? selectedProject.workingDirs.join(", ")
     : undefined;
+  const contextProgress = contextLimit > 0 ? Math.min(contextTokens / contextLimit, 1) : 0;
+  const contextPercentDigits =
+    contextProgress > 0 && contextProgress < 0.1 ? 1 : 0;
+  const usedPercentLabel = formatNumber(contextProgress, {
+    style: "percent",
+    minimumFractionDigits: contextPercentDigits,
+    maximumFractionDigits: contextPercentDigits,
+  });
+  const leftPercentLabel = formatNumber(Math.max(1 - contextProgress, 0), {
+    style: "percent",
+    minimumFractionDigits: contextPercentDigits,
+    maximumFractionDigits: contextPercentDigits,
+  });
+  const formatCompactTokenCount = (value: number) =>
+    formatNumber(value, {
+      notation: "compact",
+      compactDisplay: "short",
+      maximumFractionDigits: value < 10_000 ? 1 : 0,
+    });
 
   const handleProjectValueChange = (value: string) => {
     if (value === CREATE_PROJECT_VALUE) {
@@ -247,26 +271,54 @@ export function ChatInputToolbar({
           )}
 
           {contextLimit > 0 && (
-            <Button
-              type="button"
-              variant="ghost"
-              size={isCompact ? "icon-sm" : "sm"}
-              className={cn(
-                "rounded-full bg-accent/35 text-foreground/80 shadow-none hover:bg-accent/60 hover:text-foreground",
-                isCompact ? "px-0" : "px-2.5",
-              )}
-              aria-label={t("toolbar.contextUsage")}
-              title={t("toolbar.contextUsageTitle", {
-                tokens: formatNumber(contextTokens),
-                limit: formatNumber(contextLimit),
-              })}
-            >
-              <ContextRing
-                tokens={contextTokens}
-                limit={contextLimit}
-                size={18}
-              />
-            </Button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size={isCompact ? "icon-sm" : "sm"}
+                  className={cn(
+                    "group rounded-full bg-transparent text-foreground/80 shadow-none hover:bg-transparent hover:text-foreground data-[state=open]:bg-transparent data-[state=open]:text-foreground",
+                    isCompact ? "px-0" : "px-2.5",
+                  )}
+                  aria-label={t("toolbar.contextUsage")}
+                  title={t("toolbar.contextUsageTitle", {
+                    tokens: formatNumber(contextTokens),
+                    limit: formatNumber(contextLimit),
+                  })}
+                >
+                  <ContextRing
+                    tokens={contextTokens}
+                    limit={contextLimit}
+                    size={18}
+                  />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="top"
+                align="end"
+                sideOffset={8}
+                className="w-52 rounded-2xl px-3 py-2.5 text-center"
+              >
+                <div className="space-y-0.5">
+                  <div className="text-[11px] text-muted-foreground">
+                    {t("toolbar.contextWindow")}
+                  </div>
+                  <div className="text-base font-semibold tracking-tight text-foreground">
+                    {t("toolbar.contextUsageBreakdown", {
+                      used: usedPercentLabel,
+                      left: leftPercentLabel,
+                    })}
+                  </div>
+                  <div className="text-sm text-foreground">
+                    {t("toolbar.contextTokensBreakdown", {
+                      tokens: formatCompactTokenCount(contextTokens),
+                      limit: formatCompactTokenCount(contextLimit),
+                    })}
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
           )}
 
           <DropdownMenu>

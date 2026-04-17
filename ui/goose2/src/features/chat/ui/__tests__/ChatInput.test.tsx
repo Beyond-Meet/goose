@@ -223,7 +223,8 @@ describe("ChatInput", () => {
     expect(screen.getByText("goose2")).toBeInTheDocument();
   });
 
-  it("shows a visible context usage control when token tracking is available", () => {
+  it("opens a context usage popover when token tracking is available", async () => {
+    const user = userEvent.setup();
     render(
       <ChatInput
         onSend={vi.fn()}
@@ -232,10 +233,11 @@ describe("ChatInput", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: /context usage/i })).toHaveAttribute(
-      "title",
-      "1,536 / 8,192 tokens",
-    );
+    await user.click(screen.getByRole("button", { name: /context usage/i }));
+
+    expect(screen.getByText("Context window:")).toBeInTheDocument();
+    expect(screen.getByText("19% used (81% left)")).toBeInTheDocument();
+    expect(screen.getByText("1.5K / 8.2K tokens used")).toBeInTheDocument();
   });
 
   it("hides the context usage control when the context limit is unavailable", () => {

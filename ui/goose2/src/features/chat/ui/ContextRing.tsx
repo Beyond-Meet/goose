@@ -1,6 +1,8 @@
 import { useTranslation } from "react-i18next";
 import { useLocaleFormatting } from "@/shared/i18n";
 
+const VISUAL_TEST_SCALE = 1.25;
+
 // ---------------------------------------------------------------------------
 // ContextRing — SVG circular indicator for context token usage
 // ---------------------------------------------------------------------------
@@ -19,7 +21,8 @@ export function ContextRing({
   const radius = (size - 3) / 2;
   const circumference = 2 * Math.PI * radius;
   const progress = limit > 0 ? Math.min(tokens / limit, 1) : 0;
-  const offset = circumference - progress * circumference;
+  const visualProgress = Math.min(progress * VISUAL_TEST_SCALE, 1);
+  const offset = circumference - visualProgress * circumference;
   const percent = formatNumber(Math.round(progress * 100));
 
   // Color based on usage
@@ -29,7 +32,10 @@ export function ContextRing({
       : progress > 0.7
         ? "var(--text-warning)"
         : "var(--color-accent)";
-  const fillOpacity = progress > 0 ? 0.18 : 0.12;
+  const fillOpacityClass =
+    visualProgress > 0
+      ? "opacity-[0.18] transition-opacity duration-150 ease-out group-hover:opacity-[0.28] group-data-[state=open]:opacity-[0.28]"
+      : "opacity-[0.12] transition-opacity duration-150 ease-out group-hover:opacity-[0.18] group-data-[state=open]:opacity-[0.18]";
 
   return (
     <svg
@@ -44,7 +50,7 @@ export function ContextRing({
         cy={size / 2}
         r={Math.max(radius - 3, 0)}
         fill={toneColor}
-        fillOpacity={fillOpacity}
+        className={fillOpacityClass}
       />
       {/* Background track */}
       <circle
