@@ -119,9 +119,21 @@ export async function cancelSession(sessionId: string): Promise<void> {
 
 export async function newSession(
   workingDir: string,
+  providerId?: string,
 ): Promise<NewSessionResponse> {
   const client = await getClient();
-  return client.newSession({ cwd: workingDir, mcpServers: [] });
+  const request: Parameters<typeof client.newSession>[0] & {
+    meta?: Record<string, string>;
+  } = {
+    cwd: workingDir,
+    mcpServers: [],
+  };
+
+  if (providerId) {
+    request.meta = { provider: providerId };
+  }
+
+  return client.newSession(request);
 }
 
 export async function loadSession(

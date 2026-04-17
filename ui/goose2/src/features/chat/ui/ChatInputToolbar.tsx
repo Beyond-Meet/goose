@@ -250,15 +250,22 @@ export function ChatInputToolbar({
             <Button
               type="button"
               variant="ghost"
-              size="icon-sm"
-              className="rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"
+              size={isCompact ? "icon-sm" : "sm"}
+              className={cn(
+                "rounded-full bg-accent/35 text-foreground/80 shadow-none hover:bg-accent/60 hover:text-foreground",
+                isCompact ? "px-0" : "px-2.5",
+              )}
               aria-label={t("toolbar.contextUsage")}
               title={t("toolbar.contextUsageTitle", {
                 tokens: formatNumber(contextTokens),
                 limit: formatNumber(contextLimit),
               })}
             >
-              <ContextRing tokens={contextTokens} limit={contextLimit} />
+              <ContextRing
+                tokens={contextTokens}
+                limit={contextLimit}
+                size={18}
+              />
             </Button>
           )}
 

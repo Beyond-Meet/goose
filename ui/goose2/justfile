@@ -12,6 +12,7 @@ default:
 setup:
     pnpm install
     cd ../sdk && pnpm build
+    cd ../.. && cargo build -p goose-cli --bin goose
     cd src-tauri && cargo build
 
 # ── Build & Check ────────────────────────────────────────────
@@ -82,7 +83,21 @@ dev:
     VITE_PORT={{ vite_port }}
     export VITE_PORT
     PROJECT_DIR=$(pwd)
+    REPO_ROOT=$(cd ../.. && pwd)
+    LOCAL_GOOSE_DEBUG="${REPO_ROOT}/target/debug/goose"
+    LOCAL_GOOSE_RELEASE="${REPO_ROOT}/target/release/goose"
+    if [[ -x "${LOCAL_GOOSE_DEBUG}" ]]; then
+        export GOOSE_BIN="${LOCAL_GOOSE_DEBUG}"
+    elif [[ -x "${LOCAL_GOOSE_RELEASE}" ]]; then
+        export GOOSE_BIN="${LOCAL_GOOSE_RELEASE}"
+    fi
     TAURI_CONFIG="{\"build\":{\"devUrl\":\"http://localhost:${VITE_PORT}\",\"beforeDevCommand\":{\"script\":\"cd ${PROJECT_DIR} && exec pnpm exec vite --port ${VITE_PORT} --strictPort\",\"cwd\":\".\",\"wait\":false}}}"
+
+    if [[ -n "${GOOSE_BIN:-}" ]]; then
+        echo "Using local goose binary: ${GOOSE_BIN}"
+    else
+        echo "No local goose binary found under ${REPO_ROOT}/target; falling back to PATH"
+    fi
 
     # In worktrees, generate a labeled icon so you can tell instances apart
     if git rev-parse --is-inside-work-tree &>/dev/null; then
@@ -111,7 +126,21 @@ dev-debug:
 
     VITE_PORT={{ vite_port }}
     export VITE_PORT
+    REPO_ROOT=$(cd ../.. && pwd)
+    LOCAL_GOOSE_DEBUG="${REPO_ROOT}/target/debug/goose"
+    LOCAL_GOOSE_RELEASE="${REPO_ROOT}/target/release/goose"
+    if [[ -x "${LOCAL_GOOSE_DEBUG}" ]]; then
+        export GOOSE_BIN="${LOCAL_GOOSE_DEBUG}"
+    elif [[ -x "${LOCAL_GOOSE_RELEASE}" ]]; then
+        export GOOSE_BIN="${LOCAL_GOOSE_RELEASE}"
+    fi
     EXTRA_CONFIG="--config {\"build\":{\"devUrl\":\"http://localhost:${VITE_PORT}\",\"beforeDevCommand\":{\"script\":\"exec ./node_modules/.bin/vite --port ${VITE_PORT} --strictPort\",\"cwd\":\"..\",\"wait\":false}}}"
+
+    if [[ -n "${GOOSE_BIN:-}" ]]; then
+        echo "Using local goose binary: ${GOOSE_BIN}"
+    else
+        echo "No local goose binary found under ${REPO_ROOT}/target; falling back to PATH"
+    fi
 
     # In worktrees, generate a labeled icon so you can tell instances apart
     if git rev-parse --is-inside-work-tree &>/dev/null; then

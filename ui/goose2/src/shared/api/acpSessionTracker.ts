@@ -6,14 +6,36 @@ interface PreparedSession {
   workingDir: string;
 }
 
+type SessionRegistrationListener = (
+  localSessionId: string,
+  gooseSessionId: string,
+) => void;
+
 const prepared = new Map<string, PreparedSession>();
 const gooseToLocal = new Map<string, string>();
+const registrationListeners = new Set<SessionRegistrationListener>();
 
 function makeKey(sessionId: string, personaId?: string): string {
   if (personaId && personaId.length > 0) {
     return `${sessionId}__${personaId}`;
   }
   return sessionId;
+}
+
+function notifySessionRegistered(
+  localSessionId: string,
+  gooseSessionId: string,
+): void {
+  for (const listener of registrationListeners) {
+    listener(localSessionId, gooseSessionId);
+  }
+}
+
+export function subscribeToSessionRegistration(
+  listener: SessionRegistrationListener,
+): () => void {
+  registrationListeners.add(listener);
+  return () => registrationListeners.delete(listener);
 }
 
 export async function prepareSession(
@@ -45,7 +67,7 @@ export async function prepareSession(
   } catch {}
 
   if (!gooseSessionId) {
-    const response = await acpApi.newSession(workingDir);
+    const response = await acpApi.newSession(workingDir, providerId);
     gooseSessionId = response.sessionId;
   }
 
@@ -54,6 +76,7 @@ export async function prepareSession(
   prepared.set(key, { gooseSessionId, providerId, workingDir });
   prepared.set(sessionId, { gooseSessionId, providerId, workingDir });
   gooseToLocal.set(gooseSessionId, sessionId);
+  notifySessionRegistered(sessionId, gooseSessionId);
 
   return gooseSessionId;
 }
@@ -83,4 +106,5 @@ export function registerSession(
   const entry = { gooseSessionId, providerId, workingDir };
   prepared.set(sessionId, entry);
   gooseToLocal.set(gooseSessionId, sessionId);
+  notifySessionRegistered(sessionId, gooseSessionId);
 }

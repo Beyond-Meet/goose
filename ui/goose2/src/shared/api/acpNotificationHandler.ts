@@ -14,10 +14,50 @@ import type {
   ToolResponseContent,
 } from "@/shared/types/messages";
 import type { AcpNotificationHandler } from "./acpConnection";
-import { getLocalSessionId } from "./acpSessionTracker";
+import {
+  getLocalSessionId,
+  subscribeToSessionRegistration,
+} from "./acpSessionTracker";
 
 // Pre-set message ID for the next live stream per goose session
 const presetMessageIds = new Map<string, string>();
+const pendingSessionUpdates = new Map<string, SessionUpdate[]>();
+
+function queuePendingSessionUpdate(
+  gooseSessionId: string,
+  update: SessionUpdate,
+): void {
+  const pending = pendingSessionUpdates.get(gooseSessionId);
+  if (pending) {
+    pending.push(update);
+    return;
+  }
+  pendingSessionUpdates.set(gooseSessionId, [update]);
+}
+
+function flushPendingSessionUpdates(
+  localSessionId: string,
+  gooseSessionId: string,
+): void {
+  const pending = pendingSessionUpdates.get(gooseSessionId);
+  if (!pending?.length) {
+    return;
+  }
+
+  pendingSessionUpdates.delete(gooseSessionId);
+
+  for (const update of pending) {
+    if (useChatStore.getState().loadingSessionIds.has(localSessionId)) {
+      handleReplay(localSessionId, update);
+    } else {
+      handleLive(localSessionId, gooseSessionId, update);
+    }
+  }
+}
+
+subscribeToSessionRegistration((localSessionId, gooseSessionId) => {
+  flushPendingSessionUpdates(localSessionId, gooseSessionId);
+});
 
 export function setActiveMessageId(
   gooseSessionId: string,
@@ -34,14 +74,20 @@ export async function handleSessionNotification(
   notification: SessionNotification,
 ): Promise<void> {
   const gooseSessionId = notification.sessionId;
-  const sessionId = getLocalSessionId(gooseSessionId) ?? gooseSessionId;
   const { update } = notification;
-  const isReplay = useChatStore.getState().loadingSessionIds.has(sessionId);
+  const localSessionId = getLocalSessionId(gooseSessionId);
+
+  if (!localSessionId) {
+    queuePendingSessionUpdate(gooseSessionId, update);
+    return;
+  }
+
+  const isReplay = useChatStore.getState().loadingSessionIds.has(localSessionId);
 
   if (isReplay) {
-    handleReplay(sessionId, update);
+    handleReplay(localSessionId, update);
   } else {
-    handleLive(sessionId, gooseSessionId, update);
+    handleLive(localSessionId, gooseSessionId, update);
   }
 }
 

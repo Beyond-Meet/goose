@@ -23,12 +23,13 @@ export function ContextRing({
   const percent = formatNumber(Math.round(progress * 100));
 
   // Color based on usage
-  const strokeColor =
+  const toneColor =
     progress > 0.9
       ? "var(--text-danger)"
       : progress > 0.7
         ? "var(--text-warning)"
-        : "var(--text-muted)";
+        : "var(--color-accent)";
+  const fillOpacity = progress > 0 ? 0.18 : 0.12;
 
   return (
     <svg
@@ -38,6 +39,13 @@ export function ContextRing({
       className="shrink-0"
       aria-label={t("context.ringAria", { percent })}
     >
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={Math.max(radius - 3, 0)}
+        fill={toneColor}
+        fillOpacity={fillOpacity}
+      />
       {/* Background track */}
       <circle
         cx={size / 2}
@@ -45,8 +53,8 @@ export function ContextRing({
         r={radius}
         fill="none"
         stroke="currentColor"
-        strokeWidth={2}
-        className="text-muted-foreground/30"
+        strokeWidth={2.5}
+        className="text-foreground/15"
       />
       {/* Progress arc */}
       <circle
@@ -54,13 +62,13 @@ export function ContextRing({
         cy={size / 2}
         r={radius}
         fill="none"
-        stroke={strokeColor}
-        strokeWidth={2}
+        stroke={toneColor}
+        strokeWidth={2.5}
         strokeLinecap="round"
         strokeDasharray={circumference}
         strokeDashoffset={offset}
         transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        className="transition-all duration-300"
+        className="transition-all duration-300 ease-out"
       />
     </svg>
   );
