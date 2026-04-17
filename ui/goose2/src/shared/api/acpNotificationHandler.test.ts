@@ -1,11 +1,17 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { SessionNotification } from "@agentclientprotocol/sdk";
 import { useChatStore } from "@/features/chat/stores/chatStore";
+import {
+  clearReplayBuffer,
+  getAndDeleteReplayBuffer,
+} from "@/features/chat/hooks/replayBuffer";
 import { registerSession } from "./acpSessionTracker";
 import { handleSessionNotification } from "./acpNotificationHandler";
 
 describe("acpNotificationHandler", () => {
   beforeEach(() => {
+    clearReplayBuffer("draft-session-1");
+    clearReplayBuffer("draft-session-2");
     useChatStore.setState({
       messagesBySession: {},
       sessionStateById: {},
@@ -43,5 +49,27 @@ describe("acpNotificationHandler", () => {
       useChatStore.getState().getSessionRuntime("draft-session-1");
     expect(runtime.tokenState.accumulatedTotal).toBe(512);
     expect(runtime.tokenState.contextLimit).toBe(8192);
+  });
+
+  it("does not buffer non-usage updates before the local session mapping exists", async () => {
+    const notification = {
+      sessionId: "goose-session-2",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "message-1",
+        content: {
+          type: "text",
+          text: "hello from replay",
+        },
+      },
+    } as SessionNotification;
+
+    await handleSessionNotification(notification);
+    registerSession("draft-session-2", "goose-session-2", "goose", "/tmp");
+
+    expect(getAndDeleteReplayBuffer("draft-session-2")).toBeUndefined();
+    expect(
+      useChatStore.getState().messagesBySession["draft-session-2"],
+    ).toBeUndefined();
   });
 });

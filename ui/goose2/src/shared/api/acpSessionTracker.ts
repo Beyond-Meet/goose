@@ -108,3 +108,19 @@ export function registerSession(
   gooseToLocal.set(gooseSessionId, sessionId);
   notifySessionRegistered(sessionId, gooseSessionId);
 }
+
+export function unregisterSession(
+  sessionId: string,
+  gooseSessionId?: string,
+): void {
+  const entry = prepared.get(sessionId);
+  prepared.delete(sessionId);
+
+  const resolvedGooseSessionId = gooseSessionId ?? entry?.gooseSessionId;
+  if (
+    resolvedGooseSessionId &&
+    gooseToLocal.get(resolvedGooseSessionId) === sessionId
+  ) {
+    gooseToLocal.delete(resolvedGooseSessionId);
+  }
+}

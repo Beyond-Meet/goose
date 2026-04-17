@@ -126,13 +126,18 @@ export async function acpLoadSession(
   workingDir?: string,
 ): Promise<void> {
   const effectiveWorkingDir = workingDir ?? "~/.goose/artifacts";
-  await directAcp.loadSession(gooseSessionId, effectiveWorkingDir);
   sessionTracker.registerSession(
     sessionId,
     gooseSessionId,
     "goose",
     effectiveWorkingDir,
   );
+  try {
+    await directAcp.loadSession(gooseSessionId, effectiveWorkingDir);
+  } catch (error) {
+    sessionTracker.unregisterSession(sessionId, gooseSessionId);
+    throw error;
+  }
 }
 
 /** Export a session as JSON via the goose binary. */
